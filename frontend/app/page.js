@@ -8,6 +8,7 @@ import Header from '@/components/Header'
 import Hero from '@/components/Hero'
 import Footer from '@/components/Footer'
 import Reveal from '@/components/Reveal'
+import ProductImage from '@/components/ProductImage'
 import { MARKET_CATEGORIES } from '@/lib/categories'
 import { stockLabel, isOutOfStock, discountPct } from '@/lib/products'
 import { Icon, iconNameFor } from '@/components/icons'
@@ -179,15 +180,9 @@ export default function HomePage() {
                 const stockText = stockLabel(product)
                 const out = isOutOfStock(product)
                 return (
-                  <div key={product.id} style={{ ...styles.dealCard, ...(out ? styles.dealCardOut : {}) }}>
+                  <div key={product.id} className="ko-pimg-zoom" style={{ ...styles.dealCard, ...(out ? styles.dealCardOut : {}) }}>
                     <div style={styles.dealVisual}>
-                      {product.images?.[0] ? (
-                        <img src={product.images[0]} alt={product.name} style={styles.dealImg} />
-                      ) : (
-                        <span style={styles.dealIcon}>
-                          <Icon name={iconNameFor(product)} size={56} color="#94a3b8" />
-                        </span>
-                      )}
+                      <ProductImage row={product} alt={product.name} style={styles.dealMint} />
                       {pct ? <span style={styles.dealBadge}>-{pct}%</span> : null}
                       {stockText && (
                         <span
@@ -405,79 +400,72 @@ const styles = {
   },
   dealCard: {
     background: '#fff',
-    border: '1px solid var(--border)',
-    borderRadius: 18,
+    border: '1px solid #f1f5f9',
+    borderRadius: 8,
     overflow: 'hidden',
     display: 'flex',
     flexDirection: 'column',
-    transition: 'all 0.25s ease',
-    boxShadow: '0 2px 10px rgba(15,23,42,0.04)',
+    transition: 'box-shadow 0.2s ease',
+    boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
   },
   dealVisual: {
     position: 'relative',
-    height: 148,
-    background: 'linear-gradient(140deg, #f1f5f9 0%, #e2e8f0 100%)',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
+    background: '#fff',
   },
-  dealImg: { width: '100%', height: '100%', objectFit: 'cover' },
-  dealIcon: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    opacity: 0.9,
-  },
+  dealMint: { borderRadius: 0 },
   dealBadge: {
     position: 'absolute',
-    top: 12,
-    left: 12,
-    background: '#ef4444',
-    color: '#fff',
+    top: 8,
+    right: 8,
+    background: '#fef3e2',
+    color: '#f68b1e',
     fontSize: 12,
     fontWeight: 800,
-    padding: '4px 10px',
-    borderRadius: 8,
+    padding: '3px 8px',
+    borderRadius: 4,
+    zIndex: 2,
   },
   stockBadge: {
     position: 'absolute',
-    top: 12,
-    right: 12,
-    background: '#ecfdf5',
-    color: '#047857',
-    border: '1px solid #a7f3d0',
-    fontSize: 11.5,
-    fontWeight: 800,
-    padding: '4px 10px',
-    borderRadius: 8,
-  },
-  stockBadgeLow: { background: '#fffbeb', color: '#b45309', borderColor: '#fde68a' },
-  stockBadgeOut: { background: '#fef2f2', color: '#b91c1c', borderColor: '#fecaca' },
-  dealCardOut: { opacity: 0.62, filter: 'saturate(0.55)' },
-  dealBody: { padding: '14px 16px 4px', flex: 1 },
-  dealStore: {
-    fontSize: 11.5,
+    bottom: 8,
+    left: 8,
+    background: 'rgba(15,23,42,0.82)',
+    color: '#fff',
+    border: 'none',
+    fontSize: 11,
     fontWeight: 700,
-    textTransform: 'uppercase',
-    letterSpacing: '0.06em',
-    color: 'var(--accent-600)',
-    marginBottom: 3,
+    padding: '3px 8px',
+    borderRadius: 4,
+    zIndex: 2,
+  },
+  stockBadgeLow: { background: 'rgba(180,83,9,0.92)' },
+  stockBadgeOut: { background: 'rgba(185,28,28,0.92)' },
+  dealCardOut: { opacity: 0.62, filter: 'saturate(0.55)' },
+  dealBody: { padding: '10px 12px 4px', flex: 1 },
+  dealStore: {
+    fontSize: 11,
+    fontWeight: 400,
+    color: '#75757a',
+    marginBottom: 4,
     whiteSpace: 'nowrap',
     overflow: 'hidden',
     textOverflow: 'ellipsis',
   },
   dealName: {
-    fontSize: 15,
-    fontWeight: 700,
-    color: 'var(--ink)',
-    lineHeight: 1.35,
+    fontSize: 13.5,
+    fontWeight: 400,
+    color: '#282828',
+    lineHeight: 1.4,
     marginBottom: 8,
-    minHeight: 40,
+    minHeight: 38,
     overflow: 'hidden',
+    display: '-webkit-box',
+    WebkitLineClamp: 2,
+    WebkitBoxOrient: 'vertical',
   },
-  dealPrices: { display: 'flex', alignItems: 'baseline', gap: 8 },
-  dealPrice: { fontSize: 17, fontWeight: 800, color: 'var(--ink)' },
-  dealOld: { fontSize: 13, color: 'var(--muted-light)', textDecoration: 'line-through' },
+  dealPrices: { display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' },
+  dealPrice: { fontSize: 16, fontWeight: 700, color: '#282828' },
+  dealOld: { fontSize: 12, color: '#75757a', textDecoration: 'line-through' },
   dealFoot: { padding: '12px 16px 16px' },
   dealBtn: { width: '100%', padding: '10px 0', fontSize: 14, borderRadius: 10 },
 

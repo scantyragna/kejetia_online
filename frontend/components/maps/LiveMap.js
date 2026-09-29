@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
 import 'leaflet/dist/leaflet.css'
 import {
   IMAGE_SRC,
@@ -148,6 +148,7 @@ export default function LiveMap({
   stores = [],
   landmarks = [],
   userLocations = [],
+  trails = [],
   onStoreClick,
   onLocationPick,
   selectedStoreId,
@@ -158,6 +159,12 @@ export default function LiveMap({
   showUserLocation = true,
   autoLocate = false,
   showLandmarks = true,
+  // Bare-map rebuild: static KML dots + Kejetia centre pin are OFF by
+  // default. The map starts empty — shoppers draw it with dots, breadcrumb
+  // trails and photo landmarks. Pass showStaticLandmarks to opt back in.
+  showStaticLandmarks = false,
+  showKejetiaCenter = false,
+  showTrails = true,
   routes = null,
   navTrip = null,
   onNavEnd = null,
@@ -205,6 +212,10 @@ export default function LiveMap({
   const onLocationPickRef = useRef(onLocationPick)
   onStoreClickRef.current = onStoreClick
   onLocationPickRef.current = onLocationPick
+  // Static-layer flags for the one-time init (bare map = both false).
+  const staticFlagsRef = useRef({ showStaticLandmarks, showKejetiaCenter, showLandmarks })
+  staticFlagsRef.current = { showStaticLandmarks, showKejetiaCenter, showLandmarks }
+  const trailLayersRef = useRef([])
 
   // Whether we're at Kejetia zoom level
   const isKejetiaZoom = currentZoom >= ZOOM_KEJETIA_OVERLAY
@@ -305,12 +316,35 @@ export default function LiveMap({
         L.control.attribution({ prefix: false, position: 'bottomright' }).addTo(map)
         L.control.scale({ position: 'bottomleft', imperial: false, maxWidth: 120 }).addTo(map)
 
-        // ── Tile loading indicator ──
+        // ── Tile loading indicator (with failsafe — a blocked tile CDN
+        // must never leave the skeleton up forever) ──
         let tilesLoading = 0
-        map.on('tileloadstart', () => { tilesLoading++; setMapLoading(true) })
-        map.on('tileload load', () => {
-          tilesLoading = Math.max(0, tilesLoading - 1)
-          if (tilesLoading === 0) setMapLoading(false)
+        let settled = false
+        const settle = () => {
+          if (settled || cancelled) return
+          settled = true
+          setMapLoading(false)
+        }
+        const loadingFallback = setTimeout(settle, 8000)
+        map.on('tileloadstart', () => {
+          if (settled) return // panning after first load never re-shows the skeleton
+          tilesLoading++; setMapLoading(true)
+        })
+        // NOTE: 'tileload' is not a map-level event — listen on each layer.
+        ;[streets, satellite].forEach((layer) => {
+          layer.on('load', () => {
+            tilesLoading = 0
+            clearTimeout(loadingFallback)
+            settle()
+          })
+          layer.on('tileerror', () => {
+            tilesLoading = Math.max(0, tilesLoading - 1)
+            if (tilesLoading === 0) settle()
+          })
+        })
+        map.on('load', () => {
+          clearTimeout(loadingFallback)
+          settle()
         })
 
         // Place (or move) the "you are here" dot. When the browser reports an
@@ -634,24 +668,28 @@ export default function LiveMap({
           }
         })
 
-        // Kejetia centre pin — always visible as a national landmark at low zoom.
-        const kejetiaIcon = L.divIcon({
-          className: 'kejetia-center-pin',
-          html: `<div class="pin-body kejetia-pin-body">
-            <span class="kejetia-icon-text">🏪</span>
-          </div><div class="pin-tip"></div>`,
-          iconSize: [36, 46],
-          iconAnchor: [18, 46],
-        })
-        kejetiaMarkerRef.current = L.marker(
-          [KEJETIA_CENTER.lat, KEJETIA_CENTER.lng],
-          { icon: kejetiaIcon, zIndexOffset: 500 }
-        )
-          .addTo(map)
-          .bindPopup('<div style="padding:4px 6px"><strong>Kejetia Market</strong><br>Kumasi, Ghana<br><small>Tap to explore stores inside</small></div>')
+        // Bare map: Kejetia centre pin only when explicitly enabled.
+        const { showStaticLandmarks: wantStatic, showKejetiaCenter: wantCenter } = staticFlagsRef.current || {}
+        if (wantCenter) {
+          const kejetiaIcon = L.divIcon({
+            className: 'kejetia-center-pin',
+            html: `<div class="pin-body kejetia-pin-body">
+              <span class="kejetia-icon-text">🏪</span>
+            </div><div class="pin-tip"></div>`,
+            iconSize: [36, 46],
+            iconAnchor: [18, 46],
+          })
+          kejetiaMarkerRef.current = L.marker(
+            [KEJETIA_CENTER.lat, KEJETIA_CENTER.lng],
+            { icon: kejetiaIcon, zIndexOffset: 500 }
+          )
+            .addTo(map)
+            .bindPopup('<div style="padding:4px 6px"><strong>Kejetia Market</strong><br>Kumasi, Ghana<br><small>Tap to explore stores inside</small></div>')
+        }
 
-        // KML landmark pins — only visible at zoom >= 12
-        if (showLandmarks) {
+        // Legacy KML landmark pins — OFF by default (bare map). Opt in with
+        // showStaticLandmarks for debug/legacy views.
+        if (wantStatic) {
           const landmarkIcon = L.divIcon({
             className: 'lm-landmark-pin',
             html: '<div class="lm-landmark-dot"></div>',
@@ -798,13 +836,15 @@ export default function LiveMap({
     })
   }, [activeBase])
 
-  // ── Smart visibility: landmarks (KML dots + user photo pins) show/hide by zoom ──
+  // ── Smart visibility: ONLY legacy KML dots hide by zoom. User photo
+  // landmarks (the user-drawn map) stay at full opacity at every zoom so a
+  // newly added store-front pin is never invisible.
   useEffect(() => {
     landmarkMarkersRef.current.forEach((m) => {
       m.setOpacity(currentZoom >= ZOOM_LANDMARKS ? 1 : 0)
     })
     Object.values(landmarkPhotoByIdRef.current).forEach((m) => {
-      m.setOpacity(currentZoom >= ZOOM_LANDMARKS ? 1 : 0)
+      m.setOpacity(1)
     })
   }, [currentZoom])
 
@@ -826,13 +866,14 @@ export default function LiveMap({
   useEffect(() => {
     const map = mapInstanceRef.current
     const L = leafletRef.current
-    if (!map || !L || !mapReady || !userLocations.length) return
+    if (!map || !L || !mapReady) return
 
-    // Clear old layers
+    // Always clear first — even when empty, so expired dots disappear.
     clusterLayersRef.current.forEach((l) => map.removeLayer(l))
     clusterLayersRef.current = []
     userDotsRef.current.forEach((l) => map.removeLayer(l))
     userDotsRef.current = []
+    if (!userLocations.length) return
 
     const clusters = clusterPoints(userLocations, currentZoom)
 
@@ -878,6 +919,29 @@ export default function LiveMap({
       }
     })
   }, [userLocations, currentZoom, mapReady])
+
+  // ── Breadcrumb trails: users draw the map by walking ──
+  // One fading polyline per user from the last 24h of crumbs. Dots show
+  // where people ARE; trails show where people WENT (walkways emerge).
+  useEffect(() => {
+    const map = mapInstanceRef.current
+    const L = leafletRef.current
+    if (!map || !L || !mapReady) return
+    trailLayersRef.current.forEach((l) => map.removeLayer(l))
+    trailLayersRef.current = []
+    if (!showTrails || !Array.isArray(trails) || !trails.length) return
+    trails.forEach((t) => {
+      const path = Array.isArray(t.path) ? t.path.filter((p) => Number.isFinite(p[0]) && Number.isFinite(p[1])) : []
+      if (path.length < 2) return
+      // Halo + core so trails read on both streets and satellite.
+      trailLayersRef.current.push(
+        L.polyline(path, { color: '#fff', weight: 7, opacity: 0.85, lineCap: 'round', lineJoin: 'round', interactive: false }).addTo(map)
+      )
+      trailLayersRef.current.push(
+        L.polyline(path, { color: '#1a73e8', weight: 3.5, opacity: 0.75, lineCap: 'round', lineJoin: 'round', interactive: false }).addTo(map)
+      )
+    })
+  }, [trails, showTrails, mapReady])
 
   // Store pins from the database (diffed).
   useEffect(() => {
@@ -964,7 +1028,7 @@ export default function LiveMap({
         })
         .bindPopup(landmarkCard(l), { maxWidth: 300, autoPanPadding: [40, 40] })
       landmarkPhotoByIdRef.current[l.id] = marker
-      marker.setOpacity(currentZoom >= ZOOM_LANDMARKS ? 1 : 0)
+      marker.setOpacity(1)
     })
 
     Object.keys(landmarkPhotoByIdRef.current).forEach((id) => {

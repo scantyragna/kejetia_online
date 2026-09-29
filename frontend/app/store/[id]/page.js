@@ -7,6 +7,7 @@ import { useAuth } from '@/context/auth-context'
 import { useLiveLocations } from '@/hooks/useLiveLocations'
 import Header from '@/components/Header'
 import LiveMap from '@/components/maps/LiveMap'
+import ProductImage from '@/components/ProductImage'
 import { MARKET_CATEGORIES } from '@/lib/categories'
 import { PRODUCT_SORTS, sortProducts, stockLabel, isOutOfStock, discountPct } from '@/lib/products'
 import { fetchStoreReviews, addStoreReview, timeAgo } from '@/lib/reviews'
@@ -38,8 +39,8 @@ export default function StorePage() {
   const [submittingReview, setSubmittingReview] = useState(false)
   const [reviewMsg, setReviewMsg] = useState(null) // { ok: boolean, text: string }
 
-  // Live "users on the map" dots — only while the map tab is open.
-  const { locations: liveLocations } = useLiveLocations({ enabled: tab === 'map' })
+  // Bare map: live dots + shared trails — only while the map tab is open.
+  const { locations: liveLocations, trails: liveTrails } = useLiveLocations({ enabled: tab === 'map' })
 
   const isOwner = Boolean(user && store && store.owner_id && store.owner_id === user.id)
 
@@ -173,15 +174,9 @@ export default function StorePage() {
           : 'You only have a few left, right?'
     const enquiryText = `Hi! I'm interested in “${product.name}” (GH₵ ${price.toLocaleString()}${dealNote}) from ${store.name} on KejetiaOnline. ${stockAsk}`
     return (
-      <div key={product.id} style={{ ...styles.productCard, ...(out ? styles.productCardOut : {}) }}>
+      <div key={product.id} className="ko-pimg-zoom" style={{ ...styles.productCard, ...(out ? styles.productCardOut : {}) }}>
         <div style={styles.productVisual}>
-          {product.images?.[0] ? (
-            <img src={product.images[0]} alt={product.name} style={styles.productImg} />
-          ) : (
-            <span style={styles.productIcon}>
-              <Icon name={iconNameFor(product)} size={50} color="#94a3b8" />
-            </span>
-          )}
+          <ProductImage row={product} alt={product.name} />
           {pct ? <span style={styles.dealBadge}>-{pct}%</span> : null}
           {stockText && (
             <span
@@ -515,6 +510,7 @@ export default function StorePage() {
               <LiveMap
                 stores={[store]}
                 userLocations={liveLocations}
+                trails={liveTrails}
                 height={360}
                 center={{ lat: store.latitude, lng: store.longitude }}
                 zoom={16}
@@ -712,52 +708,48 @@ const styles = {
   emptyText: { fontSize: 15, color: 'var(--muted)', maxWidth: 380 },
   emptyWa: { padding: '11px 22px', fontSize: 14, borderRadius: 999 },
 
-  productGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(230px, 1fr))', gap: 20 },
+  productGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 12 },
   productCard: {
     background: '#fff',
-    border: '1px solid var(--border)',
-    borderRadius: 16,
+    border: '1px solid #f1f5f9',
+    borderRadius: 8,
     overflow: 'hidden',
     display: 'flex',
     flexDirection: 'column',
-    transition: 'all 0.25s ease',
-    boxShadow: '0 2px 8px rgba(15,23,42,0.04)',
+    transition: 'box-shadow 0.2s ease',
+    boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
   },
   productVisual: {
     position: 'relative',
-    height: 140,
-    background: 'linear-gradient(140deg, #f1f5f9 0%, #e2e8f0 100%)',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
+    background: '#fff',
   },
-  productImg: { width: '100%', height: '100%', objectFit: 'cover' },
-  productIcon: { display: 'inline-flex', alignItems: 'center', justifyContent: 'center' },
   dealBadge: {
     position: 'absolute',
-    top: 10,
-    left: 10,
-    background: '#ef4444',
-    color: '#fff',
-    fontSize: 11.5,
+    top: 8,
+    right: 8,
+    background: '#fef3e2',
+    color: '#f68b1e',
+    fontSize: 12,
     fontWeight: 800,
-    padding: '3px 9px',
-    borderRadius: 8,
+    padding: '3px 8px',
+    borderRadius: 4,
+    zIndex: 2,
   },
   stockBadge: {
     position: 'absolute',
-    top: 10,
-    right: 10,
-    background: '#ecfdf5',
-    color: '#047857',
-    border: '1px solid #a7f3d0',
-    fontSize: 11.5,
-    fontWeight: 800,
-    padding: '3px 9px',
-    borderRadius: 8,
+    bottom: 8,
+    left: 8,
+    background: 'rgba(15,23,42,0.82)',
+    color: '#fff',
+    border: 'none',
+    fontSize: 11,
+    fontWeight: 700,
+    padding: '3px 8px',
+    borderRadius: 4,
+    zIndex: 2,
   },
-  stockBadgeLow: { background: '#fffbeb', color: '#b45309', borderColor: '#fde68a' },
-  stockBadgeOut: { background: '#fef2f2', color: '#b91c1c', borderColor: '#fecaca' },
+  stockBadgeLow: { background: 'rgba(180,83,9,0.92)' },
+  stockBadgeOut: { background: 'rgba(185,28,28,0.92)' },
   productCardOut: { opacity: 0.62, filter: 'saturate(0.55)' },
   productActionOff: {
     display: 'block',
@@ -780,10 +772,10 @@ const styles = {
     color: 'var(--accent-600)',
     marginBottom: 3,
   },
-  productName: { fontSize: 15, fontWeight: 700, color: 'var(--ink)', marginBottom: 4 },
+  productName: { fontSize: 13.5, fontWeight: 400, color: '#282828', marginBottom: 4, lineHeight: 1.4, minHeight: 38, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' },
   productDesc: {
-    fontSize: 12.5,
-    color: 'var(--muted)',
+    fontSize: 12,
+    color: '#75757a',
     lineHeight: 1.5,
     marginBottom: 10,
     overflow: 'hidden',
@@ -791,9 +783,9 @@ const styles = {
     WebkitLineClamp: 2,
     WebkitBoxOrient: 'vertical',
   },
-  priceRow: { display: 'flex', alignItems: 'baseline', gap: 8 },
-  price: { fontSize: 17, fontWeight: 800, color: 'var(--ink)' },
-  priceOld: { fontSize: 12.5, color: 'var(--muted-light)', textDecoration: 'line-through' },
+  priceRow: { display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' },
+  price: { fontSize: 16, fontWeight: 700, color: '#282828' },
+  priceOld: { fontSize: 12, color: '#75757a', textDecoration: 'line-through' },
   productAction: {
     display: 'block',
     textAlign: 'center',

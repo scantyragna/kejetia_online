@@ -12,7 +12,7 @@ export const runtime = 'nodejs'
 
 const POLL_TABLES = new Set([
   'stores', 'products', 'landmarks', 'reviews',
-  'conversations', 'messages', 'user_locations',
+  'conversations', 'messages', 'user_locations', 'location_trails',
 ])
 
 // Participant-only tables: polled rows must belong to the signed-in user.

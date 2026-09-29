@@ -1,33 +1,34 @@
-// Live location tracker for the Kejetia map.
+// Live location tracker for the Kejetia map — rebuilt for the user-drawn map.
 //
-// The map shows where shoppers are right now — the "N users on the map" pill,
-// the blue user dots and their clusters are all driven by LiveMap's
-// `userLocations` prop. This hook is the data path for that feature:
+// Bare-map model: no static pins ship with the app. Shoppers ARE the survey
+// team — their dots + breadcrumb trails sketch walkways, and photo landmarks
+// pin store fronts for everyone else.
 //
-//   READ  – every row in `user_locations` is fetched, then re-fetched on any
-//           Realtime change (so a dot appears the moment another user shares
-//           their position — no manual refresh), plus a periodic safety refetch.
-//   WRITE – when the signed-in user has granted geolocation, their position is
-//           upserted into `user_locations` on a ~60s heartbeat while a map page
-//           is open. Anonymous visitors never publish — they see the map
-//           read-only.
-//   EXPIRE– the 10-minute freshness window retires dots whose owner stopped
-//           heartbeating (left the page / denied permission later).
+//   READ  – `user_locations` (current dots, 10-min freshness) + recent
+//           `location_trails` (breadcrumbs, 24h window) are fetched, then
+//           re-fetched on any Realtime change plus a periodic safety refetch.
+//   WRITE – signed-in + geolocation-granted users upsert `user_locations` on
+//           a ~60s heartbeat AND append a `location_trails` crumb when they
+//           actually move (>15 m and >15 s since the last crumb). Anonymous
+//           visitors never publish — read-only.
+//   EXPIRE– dots retire after 10 min of silence; crumbs retire after 24 h.
 //
 // Mode differences:
-//   * Real mode: `updated_at` is kept fresh by the Postgres trigger from
-//     supabase-migrations/add-user-locations.sql; upsert overwrites the user's
-//     single row ("last known location").
-//   * Mock mode: the storage-backed mock client stamps `updated_at` on every
-//     insert/update and syncs across tabs through the mock BroadcastChannel —
-//     two open tabs see each other's dots exactly like Supabase Realtime.
+//   * Real mode: Postgres triggers keep `updated_at` fresh; trails are plain
+//     inserts into `location_trails` (indexed by user + time).
+//   * Mock mode: same tables in localStorage + BroadcastChannel — two tabs
+//     see each other's dots and trails like Realtime.
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { getSupabase } from '@/lib/supabase'
 import { useAuth } from '@/context/auth-context'
+import { metersBetween } from '@/lib/kejetia-graph'
 
 const STALE_MS = 10 * 60 * 1000 // drop dots older than this from the view
 const PUBLISH_INTERVAL_MS = 60 * 1000 // heartbeat — one write per minute max
 const SAFETY_REFRESH_MS = 60 * 1000 // periodic full refresh even without events
+const TRAIL_WINDOW_MS = 24 * 60 * 60 * 1000 // crumbs stay on the map for a day
+const TRAIL_PUBLISH_MS = 15 * 1000 // fastest crumb rate while walking
+const TRAIL_MIN_MOVE_M = 15 // ignore GPS jitter below this
 // Fixes rougher than this are not published: putting an IP-based fallback
 // location (GPS off) on the shared map would scatter wrong dots everywhere.
 const ACCURACY_GATE_M = 2000
@@ -59,18 +60,19 @@ async function publishPosition(sb, userId, lat, lng) {
 }
 
 /**
- * Track everyone's last-known location for the live map.
+ * Track everyone's dots + breadcrumb trails for the live bare map.
  *
  * @param {{ enabled?: boolean, share?: boolean }} options
  *   enabled – false keeps the map read-only and stops all fetching/subscribing
  *             (use it when the map UI is hidden, e.g. another tab is active).
  *   share   – false stops this browser from publishing the signed-in user's
- *             position (still reads everyone else's dots).
- * @returns {{ locations: Array<{id,user_id,lat,lng,name,city}>, sharing: boolean }}
+ *             position (still reads everyone else's dots + trails).
+ * @returns {{ locations: Array, trails: Array<{user_id,path,points}>, sharing: boolean }}
  */
 export function useLiveLocations({ enabled = true, share = true } = {}) {
   const { user } = useAuth()
   const [locations, setLocations] = useState([])
+  const [trails, setTrails] = useState([])
   const [sharing, setSharing] = useState(false)
 
   const userRef = useRef(user)
@@ -78,16 +80,20 @@ export function useLiveLocations({ enabled = true, share = true } = {}) {
   const mountedRef = useRef(true)
   const watcherRef = useRef(null)
   const lastPublishRef = useRef({ at: 0 })
+  const lastTrailRef = useRef({ at: 0, lat: null, lng: null })
   const refreshTimerRef = useRef(null)
 
-  // Fetch the shared table + profile names; merge into the shape LiveMap's
-  // user-dot popups expect ({ lat, lng, name, city }).
+  // Fetch dots + profiles + recent crumbs. Trails arrive newest-first;
+  // group by user and sort each path oldest→newest for polyline drawing.
+  // Each fetch is isolated: a missing location_trails table (old DB before
+  // migrate) must not kill the dots.
   const refresh = useCallback(async () => {
     const sb = getSupabase()
     if (!sb) return
-    const [{ data: locs }, { data: profRows }] = await Promise.all([
-      sb.from('user_locations').select('*').order('updated_at', { ascending: false }),
-      sb.from('profiles').select('*'),
+    const [{ data: locs }, { data: profRows }, { data: crumbRows }] = await Promise.all([
+      sb.from('user_locations').select('*').order('updated_at', { ascending: false }).catch(() => ({ data: [] })),
+      sb.from('profiles').select('*').catch(() => ({ data: [] })),
+      sb.from('location_trails').select('*').order('created_at', { ascending: false }).limit(1000).catch(() => ({ data: [] })),
     ])
     const profiles = {}
     ;(profRows || []).forEach((p) => {
@@ -109,6 +115,26 @@ export function useLiveLocations({ enabled = true, share = true } = {}) {
         }
       })
     if (mountedRef.current) setLocations(merged)
+
+    const trailCutoff = Date.now() - TRAIL_WINDOW_MS
+    const byUser = new Map()
+    for (const r of crumbRows || []) {
+      const lat = Number(r.latitude)
+      const lng = Number(r.longitude)
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue
+      const t = new Date(r.created_at || 0).getTime()
+      if (!Number.isFinite(t) || t < trailCutoff) continue
+      if (!byUser.has(r.user_id)) byUser.set(r.user_id, [])
+      const list = byUser.get(r.user_id)
+      if (list.length < 200) list.push({ lat, lng, t })
+    }
+    const grouped = []
+    for (const [user_id, pts] of byUser) {
+      pts.sort((a, b) => a.t - b.t)
+      if (pts.length < 2) continue // a single fix is just the dot
+      grouped.push({ user_id, points: pts, path: pts.map((p) => [p.lat, p.lng]) })
+    }
+    if (mountedRef.current) setTrails(grouped)
   }, [])
 
   const publish = useCallback(async (lat, lng) => {
@@ -122,12 +148,39 @@ export function useLiveLocations({ enabled = true, share = true } = {}) {
     }
   }, [])
 
+  const publishTrail = useCallback(async (lat, lng, accuracy) => {
+    const sb = getSupabase()
+    const u = userRef.current
+    if (!sb || !u?.id) return
+    const now = Date.now()
+    const last = lastTrailRef.current
+    // Rate-limit + distance-gate: walking drops a crumb, standing still doesn't.
+    if (now - last.at < TRAIL_PUBLISH_MS) return
+    if (last.lat != null && last.lng != null) {
+      try {
+        if (metersBetween(last.lat, last.lng, lat, lng) < TRAIL_MIN_MOVE_M) return
+      } catch { /* fall through and publish */ }
+    }
+    lastTrailRef.current = { at: now, lat, lng }
+    try {
+      const { error } = await sb.from('location_trails').insert({
+        latitude: lat,
+        longitude: lng,
+        accuracy: Number.isFinite(Number(accuracy)) ? Number(accuracy) : null,
+      })
+      if (error) throw error
+    } catch (err) {
+      console.warn('Could not publish trail crumb:', err?.message || err)
+    }
+  }, [])
+
   const stopWatching = useCallback(() => {
     if (watcherRef.current != null && navigator.geolocation) {
       navigator.geolocation.clearWatch(watcherRef.current)
       watcherRef.current = null
     }
     lastPublishRef.current = { at: 0 }
+    lastTrailRef.current = { at: 0, lat: null, lng: null }
     if (mountedRef.current) setSharing(false)
   }, [])
 
@@ -143,9 +196,13 @@ export function useLiveLocations({ enabled = true, share = true } = {}) {
         const acc = Number(pos.coords.accuracy)
         if (Number.isFinite(acc) && acc > ACCURACY_GATE_M) return
         const now = Date.now()
+        const lat = pos.coords.latitude
+        const lng = pos.coords.longitude
+        // Breadcrumb first (movement-gated), then the 60s dot heartbeat.
+        publishTrail(lat, lng, acc)
         if (now - lastPublishRef.current.at < PUBLISH_INTERVAL_MS) return
         lastPublishRef.current = { at: now }
-        publish(pos.coords.latitude, pos.coords.longitude)
+        publish(lat, lng)
       },
       () => {
         // Permission revoked / unavailable — stop publishing quietly; the
@@ -157,7 +214,7 @@ export function useLiveLocations({ enabled = true, share = true } = {}) {
     if (mountedRef.current) setSharing(true)
   }, [publish])
 
-  // Read path: subscribe to every change in user_locations + periodic refetch.
+  // Read path: dots + trails, live.
   useEffect(() => {
     if (!enabled) return undefined
     if (typeof window === 'undefined') return undefined
@@ -169,6 +226,7 @@ export function useLiveLocations({ enabled = true, share = true } = {}) {
     const channel = sb
       .channel('live-locations')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'user_locations' }, refresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'location_trails' }, refresh)
       .subscribe()
     refreshTimerRef.current = setInterval(refresh, SAFETY_REFRESH_MS)
     return () => {
@@ -220,5 +278,5 @@ export function useLiveLocations({ enabled = true, share = true } = {}) {
     }
   }, [enabled, share, user?.id, startWatching, stopWatching])
 
-  return { locations, sharing }
+  return { locations, trails, sharing }
 }

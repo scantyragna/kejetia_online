@@ -98,6 +98,33 @@ export async function uploadLandmarkPhoto(file, ownerKey = 'landmark') {
   return data?.publicUrl || null
 }
 
+// Upload a single square avatar / store-front photo (auto-compressed).
+// Returns the public URL or null. Mock mode returns a data URL.
+export async function uploadSinglePhoto(file, bucket, ownerKey = 'photo') {
+  const sb = getSupabase()
+  if (!sb || !file) return null
+  if (typeof file === 'string') return file
+  if (inMockMode()) {
+    return file.size <= MAX_SOURCE_BYTES ? readAsDataUrl(file) : null
+  }
+  const blob = await compressImage(file)
+  if (!blob) return null
+  const path = `${ownerKey}/${Date.now()}.jpg`
+  const { error } = await sb.storage.from(bucket).upload(path, blob, {
+    contentType: 'image/jpeg',
+    upsert: false,
+  })
+  if (error) {
+    console.error(`${bucket} upload failed:`, error.message)
+    return null
+  }
+  const { data } = sb.storage.from(bucket).getPublicUrl(path)
+  return data?.publicUrl || null
+}
+
+export const uploadAvatar = (file, userId) => uploadSinglePhoto(file, 'avatars', userId || 'avatar')
+export const uploadStorePhoto = (file, storeId) => uploadSinglePhoto(file, 'store-images', storeId || 'store')
+
 // Upload up to 3 photos for a store's product.
 // Mock mode: returns the data URLs (no network).
 // Real mode: returns public Storage URLs; failed uploads are dropped.

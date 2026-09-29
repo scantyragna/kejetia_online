@@ -265,6 +265,24 @@ CREATE TRIGGER user_locations_set_updated_at
 CREATE UNIQUE INDEX IF NOT EXISTS user_locations_user_id_key
   ON public.user_locations (user_id);
 
+-- ── LOCATION TRAILS (breadcrumbs — users draw the map by walking) ──
+-- One row per movement fix. The live map draws the last 24h per user as a
+-- fading polyline, so foot traffic literally sketches walkways. user_locations
+-- stays as the "current dot"; this table is the history behind it.
+CREATE TABLE IF NOT EXISTS public.location_trails (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id     UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  latitude    DOUBLE PRECISION NOT NULL,
+  longitude   DOUBLE PRECISION NOT NULL,
+  accuracy    DOUBLE PRECISION,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS location_trails_user_time_idx
+  ON public.location_trails (user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS location_trails_time_idx
+  ON public.location_trails (created_at DESC);
+
 -- ── MEDIA (product / landmark photos, 256 KB real cap) ───────
 CREATE TABLE IF NOT EXISTS public.media (
   id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -277,6 +295,10 @@ CREATE TABLE IF NOT EXISTS public.media (
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS media_bucket_key_key ON public.media (bucket, key);
+
+-- ── Profile + store photos (safe reruns for existing DBs) ─────
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS avatar_url TEXT;
+ALTER TABLE public.stores ADD COLUMN IF NOT EXISTS image_url TEXT;
 
 -- ── Extensions ------------------------------------------------
 -- gen_random_uuid() is core since Postgres 13 (Render uses >= 15).

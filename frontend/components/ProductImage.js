@@ -1,13 +1,17 @@
 'use client'
 
 // ---------------------------------------------------------------------------
-// ProductImage — one renderer for every product/store photo in the app.
+// ProductImage — Jumia-style auto-minted product photo.
 //
-// - Fills its parent (or any size passed via `style`) with a cover-cropped,
-//   lazy-loaded <img> that fades in.
-// - Never shows a broken-image icon: if there is no photo, or a photo fails
-//   to load, it falls back to a polished art tile (vector icon from the
-//   item's category over a soft gradient).
+// Every seller photo (portrait, landscape, any size) is normalized into the
+// same square white tile, exactly like jumia.com:
+//   - 1:1 square, pure white background, image letterboxed with `contain`
+//   - centered, padded, never cropped, never stretched
+//   - lazy-loaded + fade-in, async decode, non-draggable
+//   - never a broken-image icon: missing/failed photos fall back to a soft
+//     grey art tile with the category vector icon
+//
+// Parent cards render badges (discount / stock) as overlays on top of this.
 // ---------------------------------------------------------------------------
 
 import { useState } from 'react'
@@ -33,8 +37,8 @@ export default function ProductImage({
     <span className="ko-pimg-fallback" aria-hidden="true">
       <Icon
         name={icon || iconNameFor(row, 'shopping-bag')}
-        size={iconSize || 52}
-        color={tint || '#94a3b8'}
+        size={iconSize || 48}
+        color={tint || '#cbd5e1'}
       />
     </span>
   )

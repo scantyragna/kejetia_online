@@ -7,7 +7,7 @@ import { readTokenFromHeaders, getUserFromToken } from '@/lib/auth-server'
 
 export const runtime = 'nodejs'
 
-const ALLOWED_BUCKETS = new Set(['product-images', 'landmark-photos'])
+const ALLOWED_BUCKETS = new Set(['product-images', 'landmark-photos', 'avatars', 'store-images'])
 const MAX_DECODED_BYTES = 1 * 1024 * 1024 // hard cap, 1 MB
 
 export async function POST(request) {

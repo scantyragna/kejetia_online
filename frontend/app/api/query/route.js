@@ -14,24 +14,25 @@ export const runtime = 'nodejs'
 // ── Table allowlist ────────────────────────────────────────────
 const READ_TABLES = new Set([
   'profiles', 'stores', 'products', 'reviews', 'landmarks',
-  'conversations', 'messages', 'user_locations',
+  'conversations', 'messages', 'user_locations', 'location_trails',
 ])
 const IDENT = /^[A-Za-z_][A-Za-z0-9_]*$/
 
 // Columns a client may write for each table.
 const INSERT_COLUMNS = {
-  stores: ['name', 'description', 'phone', 'whatsapp', 'address', 'category', 'icon', 'operating_hours', 'latitude', 'longitude', 'is_active'],
+  stores: ['name', 'description', 'phone', 'whatsapp', 'address', 'category', 'icon', 'image_url', 'operating_hours', 'latitude', 'longitude', 'is_active'],
   products: ['store_id', 'name', 'description', 'price', 'old_price', 'stock', 'category', 'icon', 'images', 'is_available'],
   reviews: ['store_id', 'rating', 'comment', 'author_name', 'author_id'],
   conversations: ['store_id'],
   messages: ['conversation_id', 'content'],
   landmarks: ['name', 'notes', 'category', 'latitude', 'longitude', 'photo_url', 'store_id', 'created_by'],
   user_locations: ['latitude', 'longitude'],
+  location_trails: ['latitude', 'longitude', 'accuracy'],
 }
 const UPDATE_COLUMNS = {
-  stores: ['name', 'description', 'phone', 'whatsapp', 'address', 'category', 'icon', 'operating_hours', 'latitude', 'longitude', 'is_active', 'rating', 'review_count'],
+  stores: ['name', 'description', 'phone', 'whatsapp', 'address', 'category', 'icon', 'image_url', 'operating_hours', 'latitude', 'longitude', 'is_active', 'rating', 'review_count'],
   products: ['name', 'description', 'price', 'old_price', 'stock', 'category', 'icon', 'images', 'is_available'],
-  profiles: ['full_name', 'phone', 'role', 'city'],
+  profiles: ['full_name', 'phone', 'role', 'city', 'avatar_url'],
   user_locations: ['latitude', 'longitude'],
 }
 
@@ -285,6 +286,10 @@ async function authzInsert(table, payload, user) {
   if (table === 'user_locations') {
     if (!user) throw new Error('You must be signed in to share your location.')
     return { ...pluckPayload({ args: [payload] }, INSERT_COLUMNS.user_locations), user_id: user.id }
+  }
+  if (table === 'location_trails') {
+    if (!user) throw new Error('You must be signed in to share your location.')
+    return { ...pluckPayload({ args: [payload] }, INSERT_COLUMNS.location_trails), user_id: user.id }
   }
   throw new Error(`Insert into ${table} is not allowed.`)
 }
