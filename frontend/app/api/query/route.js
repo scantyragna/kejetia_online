@@ -26,14 +26,14 @@ const INSERT_COLUMNS = {
   conversations: ['store_id'],
   messages: ['conversation_id', 'content'],
   landmarks: ['name', 'notes', 'category', 'latitude', 'longitude', 'photo_url', 'store_id', 'created_by'],
-  user_locations: ['latitude', 'longitude'],
+  user_locations: ['latitude', 'longitude', 'accuracy'],
   location_trails: ['latitude', 'longitude', 'accuracy'],
 }
 const UPDATE_COLUMNS = {
   stores: ['name', 'description', 'phone', 'whatsapp', 'address', 'category', 'icon', 'image_url', 'operating_hours', 'latitude', 'longitude', 'is_active', 'rating', 'review_count'],
   products: ['name', 'description', 'price', 'old_price', 'stock', 'category', 'icon', 'images', 'is_available'],
   profiles: ['full_name', 'phone', 'role', 'city', 'avatar_url'],
-  user_locations: ['latitude', 'longitude'],
+  user_locations: ['latitude', 'longitude', 'accuracy'],
 }
 
 function fail(message, status = 403) {

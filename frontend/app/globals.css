@@ -2092,6 +2092,42 @@ input, textarea {
   flex-shrink: 0;
 }
 
+/* ── Live-sharing pill ── */
+.lm-share-pill {
+  position: absolute;
+  bottom: 170px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1050;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(255, 255, 255, 0.95);
+  border-radius: 20px;
+  padding: 6px 14px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #137333;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
+  pointer-events: none;
+  animation: lm-slide-up 0.3s ease-out;
+}
+
+.lm-share-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #34a853;
+  flex-shrink: 0;
+  animation: lm-share-pulse 1.8s ease-out infinite;
+}
+
+@keyframes lm-share-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(52, 168, 83, 0.5); }
+  70% { box-shadow: 0 0 0 7px rgba(52, 168, 83, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(52, 168, 83, 0); }
+}
+
 /* ── User location dot (single) ── */
 .lm-user-dot {
   background: transparent !important;
@@ -2169,6 +2205,12 @@ input, textarea {
   .lm-user-count-pill {
     bottom: 115px;
     font-size: 11px;
+  }
+
+  .lm-share-pill {
+    bottom: 158px;
+    font-size: 11px;
+    padding: 5px 12px;
   }
 }
 

@@ -253,6 +253,11 @@ CREATE TABLE IF NOT EXISTS public.user_locations (
   user_id     UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
   latitude    DOUBLE PRECISION,
   longitude   DOUBLE PRECISION,
+  -- Metres (Postgres `coords.accuracy`). Kept on the row so every reader can
+  -- tell a 5 m GPS fix from a 1 km IP guess: a dot published without this is
+  -- indistinguishable from an exact one, which is how the map ended up
+  -- showing people in the wrong neighbourhood. NULL = legacy row, unknown.
+  accuracy    DOUBLE PRECISION,
   created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -299,6 +304,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS media_bucket_key_key ON public.media (bucket, 
 -- ── Profile + store photos (safe reruns for existing DBs) ─────
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS avatar_url TEXT;
 ALTER TABLE public.stores ADD COLUMN IF NOT EXISTS image_url TEXT;
+ALTER TABLE public.user_locations ADD COLUMN IF NOT EXISTS accuracy DOUBLE PRECISION;
 
 -- ── Extensions ------------------------------------------------
 -- gen_random_uuid() is core since Postgres 13 (Render uses >= 15).

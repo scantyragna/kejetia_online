@@ -43,7 +43,13 @@ function SearchContent() {
   const [sort, setSort] = useState('featured')
 
   // Bare map: live dots + shared breadcrumb trails — active in map view.
-  const { locations: liveLocations, trails: liveTrails } = useLiveLocations({ enabled: view === 'map' })
+  const {
+    locations: liveLocations,
+    trails: liveTrails,
+    shareStatus,
+    shareError,
+    requestShare,
+  } = useLiveLocations({ enabled: view === 'map' })
 
   const applyFilter = useCallback((term, storeRows, productRows, cat) => {
     const q = (term || '').trim().toLowerCase()
@@ -436,6 +442,9 @@ function SearchContent() {
                 height="100%"
                 selectedStoreId={selectedStore?.id}
                 autoLocate
+                onShareLocation={requestShare}
+                shareStatus={shareStatus}
+                shareError={shareError}
               />
               {selectedStore && !landmarkMode && (
                 <div style={styles.mapPopup}>

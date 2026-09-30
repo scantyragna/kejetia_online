@@ -82,8 +82,14 @@ belong to the signed-in user.
 tiles, with a geo-referenced Kejetia image overlay at high zoom, an in-market
 walking graph (`lib/kejetia-graph.js`), and Google-Maps deep links for turn-by-
 turn. Signed-in users who grant geolocation write their position to
-`user_locations` on a ~60 s heartbeat; every browser polls for those rows, so
-live "user dots" appear and retire after ~10 min of silence.
+`user_locations` on a ~60 s heartbeat (or as soon as they walk ~25 m); every
+browser polls for those rows, so live "user dots" appear and retire after
+~10 min of silence. Sharing starts from an explicit gesture — the map's "Find
+my location" control — and only fixes within 100 m are published, always
+together with their `accuracy`. Rougher fixes are held back rather than
+painted in the wrong place, and the read path filters on the same threshold,
+so a dot always means "at least this accurate" (rendered with an uncertainty
+halo).
 
 ---
 

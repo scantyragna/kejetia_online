@@ -20,7 +20,10 @@ import { locateWithFallback, describeGeoError, GEO_MESSAGES } from '@/lib/geoloc
 
 // Geolocation fixes rougher than this are treated as "approximate" — we
 // show the uncertainty instead of claiming exact distances/positions.
-const LOW_ACCURACY_M = 2000
+// Kejetia Market is only ~1.5 km across, so the old ±2000 m cut-off called a
+// 1.5 km IP guess "precise" and confidently flew the map to it. 100 m keeps
+// every real phone GPS fix precise and makes the rest honestly approximate.
+const LOW_ACCURACY_M = 100
 
 // Free tile layers that require no API key.
 // Streets: OpenStreetMap standard tiles — CARTO's free tier now watermarks
@@ -158,6 +161,13 @@ export default function LiveMap({
   zoom,
   showUserLocation = true,
   autoLocate = false,
+  // Live-sharing state from useLiveLocations: `onShareLocation` is the
+  // explicit gesture that starts publishing this user's dot (and fires the
+  // browser permission prompt), while shareStatus/shareError let the map
+  // tell the truth about why a dot is or isn't on it.
+  onShareLocation,
+  shareStatus = 'off',
+  shareError = null,
   showLandmarks = true,
   // Bare-map rebuild: static KML dots + Kejetia centre pin are OFF by
   // default. The map starts empty — shoppers draw it with dots, breadcrumb
@@ -212,6 +222,10 @@ export default function LiveMap({
   const onLocationPickRef = useRef(onLocationPick)
   onStoreClickRef.current = onStoreClick
   onLocationPickRef.current = onLocationPick
+  // The Leaflet locate control is created once inside init(), so it has to
+  // read the latest share callback through a ref.
+  const onShareLocationRef = useRef(onShareLocation)
+  onShareLocationRef.current = onShareLocation
   // Static-layer flags for the one-time init (bare map = both false).
   const staticFlagsRef = useRef({ showStaticLandmarks, showKejetiaCenter, showLandmarks })
   staticFlagsRef.current = { showStaticLandmarks, showKejetiaCenter, showLandmarks }
@@ -239,6 +253,26 @@ export default function LiveMap({
     })
     setActiveBase(key)
   }, [])
+
+  // ── Share feedback ──
+  // Without this, the only symptom of a failed share was a map quietly
+  // missing the user's dot. Surface the reason (denied / no GPS / fix too
+  // rough) and confirm once when sharing actually starts.
+  const lastShareNoticeRef = useRef({ status: 'off', error: null })
+  const shareConfirmedRef = useRef(false)
+  useEffect(() => {
+    const prev = lastShareNoticeRef.current
+    if (prev.status === shareStatus && prev.error === shareError) return
+    lastShareNoticeRef.current = { status: shareStatus, error: shareError }
+    if (shareError) {
+      showNotice(shareError)
+      return
+    }
+    if (shareStatus === 'sharing' && !shareConfirmedRef.current) {
+      shareConfirmedRef.current = true
+      showNotice('Your live location is now shared with other shoppers.')
+    }
+  }, [shareStatus, shareError, showNotice])
 
   // ── Initialize the map once ──
   useEffect(() => {
@@ -512,7 +546,7 @@ export default function LiveMap({
             locating = false
             if (btn) btn.classList.remove('locating')
             showNotice(GEO_MESSAGES.timeout)
-          }, 18000)
+          }, 26000)
           // Accurate fix first; if that fails (no GPS / OS location off), fall
           // back to a coarse Wi‑Fi/IP fix — labelled approximate by its
           // accuracy, never presented as exact.
@@ -623,7 +657,12 @@ export default function LiveMap({
             btn.title = 'Find my location'
             btn.setAttribute('aria-label', 'Find my location')
             L.DomEvent.disableClickPropagation(btn)
-            L.DomEvent.on(btn, 'click', () => locateOnce(btn))
+            // Clicking the control is the user's gesture: it fixes their own
+            // blue dot AND asks to start sharing that dot with other shoppers.
+            L.DomEvent.on(btn, 'click', () => {
+              locateOnce(btn)
+              onShareLocationRef.current?.()
+            })
             return btn
           },
         })
@@ -634,7 +673,13 @@ export default function LiveMap({
           const tryAutoLocate = () => {
             if (!navigator.permissions || typeof navigator.permissions.query !== 'function') return
             navigator.permissions.query({ name: 'geolocation' })
-              .then((status) => { if (status.state === 'granted') locateOnce(null) })
+              .then((status) => {
+                if (status.state !== 'granted') return
+                locateOnce(null)
+                // Permission is already granted, so this is not a fresh
+                // prompt — resume sharing the dot from the previous visit.
+                onShareLocationRef.current?.()
+              })
               .catch(() => {})
           }
           tryAutoLocate()
@@ -881,6 +926,23 @@ export default function LiveMap({
       if (cluster.count === 1) {
         // Single user — blue dot
         const user = cluster.items[0]
+        const acc = Number(user.accuracy)
+        const hasAcc = Number.isFinite(acc) && acc > 0
+        // Honest uncertainty: draw the fix radius as a faint halo so nobody
+        // reads a ±50 m fix as an exact stall position. (Bad fixes are
+        // already filtered out before they get here.)
+        if (hasAcc) {
+          const halo = L.circle([user.lat, user.lng], {
+            radius: acc,
+            color: '#1a73e8',
+            weight: 1,
+            opacity: 0.35,
+            fillColor: '#1a73e8',
+            fillOpacity: 0.08,
+            interactive: false,
+          }).addTo(map)
+          userDotsRef.current.push(halo)
+        }
         const icon = L.divIcon({
           className: 'lm-user-dot',
           html: '<div class="lm-user-dot-core"></div>',
@@ -892,7 +954,9 @@ export default function LiveMap({
           .bindPopup(
             `<div style="padding:4px 8px;font-size:13px">
               <strong>${user.name || 'User'}</strong><br>
-              <span style="color:#5f6368">${user.city || 'Ghana'}</span>
+              <span style="color:#5f6368">${user.city || 'Ghana'}${
+                hasAcc ? ` · ±${Math.round(acc)} m` : ''
+              }</span>
             </div>`
           )
         userDotsRef.current.push(m)
@@ -1257,6 +1321,22 @@ export default function LiveMap({
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
           <span>Kejetia Market</span>
         </button>
+      )}
+
+      {/* Live-sharing indicator — confirms this browser is publishing its
+          dot and shows how good the fix is. */}
+      {shareStatus === 'sharing' && (
+        <div className="lm-share-pill">
+          <div className="lm-share-dot" />
+          <span>
+            Sharing your location
+            {userLocation &&
+            Number.isFinite(Number(userLocation.accuracy)) &&
+            Number(userLocation.accuracy) > 0
+              ? ` · ±${Math.round(Number(userLocation.accuracy))} m`
+              : ''}
+          </span>
+        </div>
       )}
 
       {/* User count pill — visible when zoomed out */}

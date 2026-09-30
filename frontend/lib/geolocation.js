@@ -30,7 +30,11 @@ export function describeGeoError(err) {
   return err.message || GEO_MESSAGES.unavailable
 }
 
-const HIGH_ACCURACY_OPTS = { enableHighAccuracy: true, timeout: 8000, maximumAge: 30000 }
+// Cold GPS starts routinely take longer than 8 s (first fix outdoors is
+// often 10–20 s), so the accurate attempt gets 12 s before the coarse leg
+// takes over — a real GPS fix is worth waiting for, it is the difference
+// between a ±10 m dot and a ±1 km guess. The coarse leg stays short.
+const HIGH_ACCURACY_OPTS = { enableHighAccuracy: true, timeout: 12000, maximumAge: 30000 }
 const STANDARD_OPTS = { enableHighAccuracy: false, timeout: 8000, maximumAge: 60000 }
 
 function getOnce(opts) {

@@ -40,7 +40,13 @@ export default function StorePage() {
   const [reviewMsg, setReviewMsg] = useState(null) // { ok: boolean, text: string }
 
   // Bare map: live dots + shared trails — only while the map tab is open.
-  const { locations: liveLocations, trails: liveTrails } = useLiveLocations({ enabled: tab === 'map' })
+  const {
+    locations: liveLocations,
+    trails: liveTrails,
+    shareStatus,
+    shareError,
+    requestShare,
+  } = useLiveLocations({ enabled: tab === 'map' })
 
   const isOwner = Boolean(user && store && store.owner_id && store.owner_id === user.id)
 
@@ -517,6 +523,9 @@ export default function StorePage() {
                 selectedStoreId={store.id}
                 showLandmarks={false}
                 showUserLocation
+                onShareLocation={requestShare}
+                shareStatus={shareStatus}
+                shareError={shareError}
               />
             </div>
             <p style={styles.mapHint}>
