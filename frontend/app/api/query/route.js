@@ -15,6 +15,8 @@ export const runtime = 'nodejs'
 const READ_TABLES = new Set([
   'profiles', 'stores', 'products', 'reviews', 'landmarks',
   'conversations', 'messages', 'user_locations', 'location_trails',
+  // Map Studio (crowdsourced mapping)
+  'trail_sessions', 'walkways', 'map_reports',
 ])
 const IDENT = /^[A-Za-z_][A-Za-z0-9_]*$/
 
@@ -25,15 +27,27 @@ const INSERT_COLUMNS = {
   reviews: ['store_id', 'rating', 'comment', 'author_name', 'author_id'],
   conversations: ['store_id'],
   messages: ['conversation_id', 'content'],
-  landmarks: ['name', 'notes', 'category', 'latitude', 'longitude', 'photo_url', 'store_id', 'created_by'],
+  // NOTE: no 'status', 'created_by' or 'session-with-someone-else's id' — the
+  // server sets those in authzInsert so a client can never self-publish a
+  // draft or attribute work to another contributor.
+  landmarks: ['name', 'notes', 'category', 'latitude', 'longitude', 'photo_url', 'images', 'store_id', 'session_id'],
   user_locations: ['latitude', 'longitude', 'accuracy'],
   location_trails: ['latitude', 'longitude', 'accuracy'],
+  trail_sessions: ['title'],
+  walkways: ['name', 'kind', 'geometry', 'session_id'],
+  map_reports: ['feature_table', 'feature_id', 'reason', 'detail'],
 }
 const UPDATE_COLUMNS = {
   stores: ['name', 'description', 'phone', 'whatsapp', 'address', 'category', 'icon', 'image_url', 'operating_hours', 'latitude', 'longitude', 'is_active', 'rating', 'review_count'],
   products: ['name', 'description', 'price', 'old_price', 'stock', 'category', 'icon', 'images', 'is_available'],
   profiles: ['full_name', 'phone', 'role', 'city', 'avatar_url'],
   user_locations: ['latitude', 'longitude', 'accuracy'],
+  // Review lifecycle: 'status' is listed so the ADMIN review flow can write
+  // it — it is stripped for non-admins in sanitizeStatusUpdate below.
+  landmarks: ['name', 'notes', 'category', 'photo_url', 'images', 'store_id', 'status'],
+  walkways: ['name', 'kind', 'geometry', 'status'],
+  trail_sessions: ['title', 'status', 'ended_at'],
+  map_reports: ['status'],
 }
 
 function fail(message, status = 403) {
@@ -136,6 +150,35 @@ async function buildSelectSQL(table, ops, user) {
     if (!user) where.push('1 = 0')
   }
 
+  // ── Map Studio read rules ────────────────────────────────────
+  // Draft map contributions are visible to their author and admins only;
+  // the public sees published features. Contributors must be able to see
+  // (and re-submit) their own drafts, hence the OR on created_by/user_id.
+  const isAdmin = Boolean(user?.is_admin)
+  if (table === 'landmarks' || table === 'walkways') {
+    if (isAdmin) {
+      // Admins see every status — that IS the review queue.
+    } else if (user) {
+      params.push(user.id)
+      where.push(`(status = 'published' OR created_by = $${params.length})`)
+    } else {
+      where.push(`status = 'published'`)
+    }
+  } else if (table === 'trail_sessions') {
+    // A session is the contributor's workspace (or the admin's queue).
+    if (isAdmin) {
+      // all sessions
+    } else if (user) {
+      params.push(user.id)
+      where.push(`user_id = $${params.length}`)
+    } else {
+      where.push('1 = 0')
+    }
+  } else if (table === 'map_reports') {
+    // Reports are only meaningful to whoever runs the queue.
+    if (!isAdmin) where.push('1 = 0')
+  }
+
   // ORDER BY
   let orderSql = ''
   const order = ops.find((o) => o.op === 'order')
@@ -212,10 +255,18 @@ function pluckPayload(op, cols) {
 // jsonb column rejects (`column "images" is of type jsonb but expression
 // is of type text[]`). That error was masked as generic "Query failed."
 // and broke every product insert (images is always present, even as []).
-const JSONB_COLUMNS = new Set(['images'])
+const JSONB_COLUMNS = new Set(['images', 'geometry'])
 
 function toDbValue(col, val) {
   if (JSONB_COLUMNS.has(col)) {
+    // `geometry` is a real polyline — an empty/garbage value must fail loudly
+    // at insert time rather than silently become [] (that would publish a
+    // zero-length walkway). Callers validate shape before this point; the
+    // guard here just keeps serialization total.
+    if (col === 'geometry') {
+      if (!Array.isArray(val)) return JSON.stringify([])
+      return JSON.stringify(val)
+    }
     if (val == null) return JSON.stringify([])
     if (typeof val === 'string') {
       // Already JSON? Keep it; otherwise wrap a single URL.
@@ -279,9 +330,64 @@ async function authzInsert(table, payload, user) {
     return { ...pluckPayload({ args: [payload] }, INSERT_COLUMNS.messages), sender_id: user.id }
   }
   if (table === 'landmarks') {
+    if (!user) throw new Error('You must be signed in to add a landmark.')
     const p = pluckPayload({ args: [payload] }, INSERT_COLUMNS.landmarks)
-    if (p.created_by && (!user || p.created_by !== user.id)) throw new Error('Landmark author mismatch.')
+    // The contributor is always the session user, never whatever the client
+    // sent. New landmarks land as drafts — only an admin confirm publishes.
+    p.created_by = user.id
+    p.status = 'draft'
+    if (p.session_id) {
+      const { rows } = await query(
+        'SELECT 1 FROM trail_sessions WHERE id = $1 AND user_id = $2',
+        [p.session_id, user.id]
+      )
+      if (!rows.length) throw new Error('Trail session not found or not yours.')
+    }
     return p
+  }
+  if (table === 'trail_sessions') {
+    if (!user) throw new Error('You must be signed in to start a mapping session.')
+    return {
+      ...pluckPayload({ args: [payload] }, INSERT_COLUMNS.trail_sessions),
+      user_id: user.id,
+      status: 'active',
+    }
+  }
+  if (table === 'walkways') {
+    if (!user) throw new Error('You must be signed in to add a walkway.')
+    const p = pluckPayload({ args: [payload] }, INSERT_COLUMNS.walkways)
+    // Geometry must be a real polyline: at least 2 [lat, lng] pairs of
+    // finite numbers. A single point is just a landmark, not a line.
+    const geom = Array.isArray(p.geometry) ? p.geometry : []
+    const valid = geom.filter(
+      (pt) =>
+        Array.isArray(pt) && pt.length >= 2 &&
+        Number.isFinite(Number(pt[0])) && Number.isFinite(Number(pt[1]))
+    )
+    if (valid.length < 2) {
+      throw new Error('A walkway needs at least two recorded points — walk a bit further before stopping.')
+    }
+    // Cap the polyline so one row can't bloat the table.
+    p.geometry = valid.slice(0, 2000).map((pt) => [Number(pt[0]), Number(pt[1])])
+    p.created_by = user.id
+    p.status = 'draft'
+    if (p.session_id) {
+      const { rows } = await query(
+        'SELECT 1 FROM trail_sessions WHERE id = $1 AND user_id = $2',
+        [p.session_id, user.id]
+      )
+      if (!rows.length) throw new Error('Trail session not found or not yours.')
+    }
+    return p
+  }
+  if (table === 'map_reports') {
+    if (!user) throw new Error('You must be signed in to report a feature.')
+    const p = pluckPayload({ args: [payload] }, INSERT_COLUMNS.map_reports)
+    if (!['landmarks', 'walkways', 'stores'].includes(p.feature_table)) {
+      throw new Error('That feature type cannot be reported.')
+    }
+    if (!p.feature_id) throw new Error('Missing feature to report.')
+    return { ...p, reporter_id: user.id, status: 'open' }
   }
   if (table === 'user_locations') {
     if (!user) throw new Error('You must be signed in to share your location.')
@@ -324,7 +430,54 @@ function ownerConstraint(table, user, params, where) {
     params.push(user.id)
     return `id = $${params.length}`
   }
+  if (table === 'landmarks') {
+    if (!user) throw new Error('You must be signed in.')
+    if (user.is_admin) return '1 = 1' // admins moderate any landmark
+    params.push(user.id)
+    return `created_by = $${params.length}` // …contributors only their own
+  }
+  if (table === 'walkways') {
+    if (!user) throw new Error('You must be signed in.')
+    if (user.is_admin) return '1 = 1'
+    params.push(user.id)
+    return `created_by = $${params.length}`
+  }
+  if (table === 'trail_sessions') {
+    if (!user) throw new Error('You must be signed in.')
+    if (user.is_admin) return '1 = 1'
+    params.push(user.id)
+    return `user_id = $${params.length}`
+  }
+  if (table === 'map_reports') {
+    // Only admins work the report queue.
+    if (!user) throw new Error('You must be signed in.')
+    if (user.is_admin) return '1 = 1'
+    throw new Error('Only admins can change reports.')
+  }
   throw new Error(`Update/delete on ${table} is not allowed.`)
+}
+
+// ── Map Studio status lifecycle ────────────────────────────────
+// A contributor may only move their OWN session from active → submitted.
+// Everything else (approve/reject, publishing items, resolving reports)
+// is admin-only. This is what makes the review queue trustworthy.
+function sanitizeStatusUpdate(table, payload, user) {
+  if (!('status' in payload)) return payload
+  const next = { ...payload }
+  if (user?.is_admin) {
+    const allowed = {
+      landmarks: ['draft', 'published', 'rejected'],
+      walkways: ['draft', 'published', 'rejected'],
+      trail_sessions: ['submitted', 'approved', 'rejected'],
+      map_reports: ['open', 'resolved', 'dismissed'],
+    }[table] || []
+    if (!allowed.includes(next.status)) delete next.status
+    return next
+  }
+  // Non-admin: only the active → submitted hand-off on their own session.
+  if (table === 'trail_sessions' && next.status === 'submitted') return next
+  delete next.status // never let a contributor publish their own work
+  return next
 }
 
 // ── Main handler ───────────────────────────────────────────────
@@ -387,7 +540,7 @@ export async function POST(request) {
     }
 
     if (update) {
-      const rawPayload = pluckPayload(update, UPDATE_COLUMNS[table] || [])
+      const rawPayload = sanitizeStatusUpdate(table, pluckPayload(update, UPDATE_COLUMNS[table] || []), user)
       const payload = normalizeForDb(rawPayload)
       const cols = Object.keys(payload).filter((c) => c !== 'id' && c !== 'created_at' && c !== 'rating' && c !== 'review_count' && c !== 'owner_id' && c !== 'store_id')
       if (!cols.length) return ok(null)
@@ -408,8 +561,32 @@ export async function POST(request) {
       }
       const setSql = cols.map((c, i) => `${c} = $${i + 1}`).join(', ')
       const sql = `UPDATE ${table} SET ${setSql} WHERE ${constraints.join(' AND ')}`
-      await query(sql, params)
-      return ok(null)
+      const { rowCount } = await query(sql, params)
+
+      // Admin verdict on a session cascades to its contributions:
+      // approve → publish every draft landmark/walkway in it;
+      // reject  → mark them rejected so they leave the queue cleanly.
+      // Done server-side so a flaky client can never half-apply a verdict
+      // (session approved but its landmarks still hidden, or vice versa).
+      if (table === 'trail_sessions' && cols.includes('status') && user?.is_admin) {
+        // The session id arrives as an eq filter: .update(...).eq('id', X)
+        const idFilter = ops.find((o) => o.op === 'eq' && o.args?.[0] === 'id')
+        const sessionId = idFilter?.args?.[1]
+        // Only a real verdict cascades — an admin moving a session back to
+        // 'submitted' must not quietly reject its contributions.
+        const target = payload.status === 'approved' ? 'published' : payload.status === 'rejected' ? 'rejected' : null
+        if (sessionId && target) {
+          await query(
+            "UPDATE landmarks SET status = $1 WHERE session_id = $2 AND status = 'draft'",
+            [target, sessionId]
+          ).catch((err) => console.error('[query] landmark cascade failed:', err.message))
+          await query(
+            "UPDATE walkways SET status = $1 WHERE session_id = $2 AND status = 'draft'",
+            [target, sessionId]
+          ).catch((err) => console.error('[query] walkway cascade failed:', err.message))
+        }
+      }
+      return ok({ updated: rowCount })
     }
 
     if (del) {

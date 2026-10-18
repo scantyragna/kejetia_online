@@ -538,7 +538,7 @@ export default function SellerDashboard() {
                 <LiveMap
                   height={260}
                   center={{ lat: Number(storeForm?.latitude || KEJETIA_CENTER.lat), lng: Number(storeForm?.longitude || KEJETIA_CENTER.lng) }}
-                  zoom={16}
+                  zoom={17}
                   showUserLocation
                   onLocationPick={({ lat, lng }) => setStoreForm({ ...storeForm, latitude: lat, longitude: lng })}
                   selectedPin={storeForm?.latitude != null ? { lat: Number(storeForm.latitude), lng: Number(storeForm.longitude) } : null}

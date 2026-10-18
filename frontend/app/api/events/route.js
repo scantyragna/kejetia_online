@@ -13,13 +13,19 @@ export const runtime = 'nodejs'
 const POLL_TABLES = new Set([
   'stores', 'products', 'landmarks', 'reviews',
   'conversations', 'messages', 'user_locations', 'location_trails',
+  'trail_sessions', 'walkways', 'map_reports',
 ])
 
 // Participant-only tables: polled rows must belong to the signed-in user.
 const PRIVATE_TABLES = new Set(['conversations', 'messages'])
 
 // Only these tables carry updated_at; the rest are INSERT-only change sources.
-const HAS_UPDATED_AT = new Set(['stores', 'products', 'conversations', 'user_locations'])
+// landmarks/walkways/trail_sessions carry it too now (review-status flips),
+// so an admin watching the queue sees "submitted" without a page reload.
+const HAS_UPDATED_AT = new Set([
+  'stores', 'products', 'conversations', 'user_locations',
+  'landmarks', 'walkways', 'trail_sessions',
+])
 
 function parseFilter(filter) {
   if (!filter) return null
@@ -44,13 +50,21 @@ export async function POST(request) {
   const since = body?.since ? new Date(body.since) : new Date(0)
   const now = new Date().toISOString()
 
-  // Only authenticated users may poll private tables.
+  // Only authenticated users may poll private tables. The Map Studio tables
+  // also need a session (to know whether this poller is the draft's author
+  // or an admin) — otherwise a public page polling `landmarks` would be
+  // handed unpublished drafts.
+  const STUDIO_TABLES = new Set(['landmarks', 'walkways', 'trail_sessions'])
   const token = readTokenFromHeaders(request.headers)
   let user = null
-  const needsAuth = channels.some((c) => PRIVATE_TABLES.has(c?.table))
+  const needsAuth =
+    channels.some((c) => PRIVATE_TABLES.has(c?.table)) ||
+    channels.some((c) => STUDIO_TABLES.has(c?.table))
   if (needsAuth) {
     user = await getUserFromToken(token)
-    if (!user) {
+    // Private tables bail entirely without a session. Studio tables don't —
+    // anonymous visitors still get published landmarks (handled below).
+    if (!user && channels.some((c) => PRIVATE_TABLES.has(c?.table))) {
       return NextResponse.json({ events: [], now }, { status: 200 })
     }
   }
@@ -83,6 +97,25 @@ export async function POST(request) {
       if (!user) continue
       params.push(user.id)
       filterSql += ` AND conversation_id IN (SELECT id FROM conversations WHERE buyer_id = $${params.length} OR store_id IN (SELECT id FROM stores WHERE owner_id = $${params.length}))`
+    } else if (table === 'landmarks' || table === 'walkways') {
+      // Mirror the /api/query read rule: drafts are private to their author
+      // (and admins); the public stream only ever carries published rows.
+      if (!user) {
+        filterSql += " AND status = 'published'"
+      } else if (!user.is_admin) {
+        params.push(user.id)
+        filterSql += ` AND (status = 'published' OR created_by = $${params.length})`
+      }
+    } else if (table === 'trail_sessions') {
+      // Sessions are the contributor's own workspace (or the admin's queue).
+      if (!user) continue
+      if (!user.is_admin) {
+        params.push(user.id)
+        filterSql += ` AND user_id = $${params.length}`
+      }
+    } else if (table === 'map_reports') {
+      // Reports are admin-only — same rule as /api/query reads.
+      if (!user?.is_admin) continue
     }
 
     const sql = `SELECT * FROM ${table} WHERE ${changedSince}${filterSql} LIMIT 200`

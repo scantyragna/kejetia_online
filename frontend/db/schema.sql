@@ -306,5 +306,91 @@ ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS avatar_url TEXT;
 ALTER TABLE public.stores ADD COLUMN IF NOT EXISTS image_url TEXT;
 ALTER TABLE public.user_locations ADD COLUMN IF NOT EXISTS accuracy DOUBLE PRECISION;
 
+-- ── MAP STUDIO (crowdsourced mapping, review-queue model) ─────────────
+-- Contributors walk the market with the Studio tab: they record trails,
+-- drop photo landmarks and label walkway segments. Everything lands as a
+-- DRAFT attached to a trail_sessions row; only an admin confirmation
+-- (is_admin on profiles) publishes it to the public map. Authorization
+-- lives in app/api/query/route.js — the DB carries the lifecycle columns.
+
+-- Admin flag. Separate from role (buyer/seller) so the existing role CHECK
+-- constraint stays untouched; no signup path can ever set it (the API
+-- never accepts it from a client). Grant via scripts/make-admin.mjs.
+ALTER TABLE public.profiles
+  ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT false;
+
+-- One mapping outing: start → walk → submit for review.
+CREATE TABLE IF NOT EXISTS public.trail_sessions (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id     UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  title       TEXT NOT NULL DEFAULT '',
+  status      TEXT NOT NULL DEFAULT 'active'
+              CHECK (status IN ('active', 'submitted', 'approved', 'rejected')),
+  started_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  ended_at    TIMESTAMPTZ,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+DROP TRIGGER IF EXISTS trail_sessions_set_updated_at ON public.trail_sessions;
+CREATE TRIGGER trail_sessions_set_updated_at
+  BEFORE UPDATE ON public.trail_sessions
+  FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+CREATE INDEX IF NOT EXISTS trail_sessions_user_idx ON public.trail_sessions (user_id);
+CREATE INDEX IF NOT EXISTS trail_sessions_status_idx ON public.trail_sessions (status, created_at DESC);
+
+-- Landmarks grow the review lifecycle + multi-photo support.
+-- Default 'published' keeps pre-Studio rows visible on the public map;
+-- the API forces 'draft' for every new non-admin insert.
+ALTER TABLE public.landmarks
+  ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'published',
+  ADD COLUMN IF NOT EXISTS session_id UUID REFERENCES public.trail_sessions(id) ON DELETE SET NULL,
+  ADD COLUMN IF NOT EXISTS images JSONB NOT NULL DEFAULT '[]'::jsonb;
+
+CREATE INDEX IF NOT EXISTS landmarks_status_idx ON public.landmarks (status);
+CREATE INDEX IF NOT EXISTS landmarks_session_idx ON public.landmarks (session_id);
+
+-- Line features: the walkways/roads/stairs contributors trace on foot.
+-- geometry is a JSONB polyline: [[lat,lng], [lat,lng], …]
+CREATE TABLE IF NOT EXISTS public.walkways (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  session_id  UUID REFERENCES public.trail_sessions(id) ON DELETE SET NULL,
+  created_by  UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+  name        TEXT NOT NULL DEFAULT '',
+  kind        TEXT NOT NULL DEFAULT 'walkway'
+              CHECK (kind IN ('walkway', 'road', 'stairs', 'entrance', 'crossing', 'other')),
+  geometry    JSONB NOT NULL DEFAULT '[]'::jsonb,
+  status      TEXT NOT NULL DEFAULT 'draft'
+              CHECK (status IN ('draft', 'published', 'rejected')),
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+DROP TRIGGER IF EXISTS walkways_set_updated_at ON public.walkways;
+CREATE TRIGGER walkways_set_updated_at
+  BEFORE UPDATE ON public.walkways
+  FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+CREATE INDEX IF NOT EXISTS walkways_status_idx ON public.walkways (status);
+CREATE INDEX IF NOT EXISTS walkways_session_idx ON public.walkways (session_id);
+CREATE INDEX IF NOT EXISTS walkways_creator_idx ON public.walkways (created_by);
+
+-- Community reports on published features (wrong pin, duplicate, moved…).
+CREATE TABLE IF NOT EXISTS public.map_reports (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  feature_table TEXT NOT NULL CHECK (feature_table IN ('landmarks', 'walkways', 'stores')),
+  feature_id    UUID NOT NULL,
+  reason        TEXT NOT NULL DEFAULT 'other',
+  detail        TEXT NOT NULL DEFAULT '',
+  reporter_id   UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+  status        TEXT NOT NULL DEFAULT 'open'
+                CHECK (status IN ('open', 'resolved', 'dismissed')),
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS map_reports_status_idx ON public.map_reports (status, created_at DESC);
+CREATE INDEX IF NOT EXISTS map_reports_feature_idx ON public.map_reports (feature_table, feature_id);
+
 -- ── Extensions ------------------------------------------------
 -- gen_random_uuid() is core since Postgres 13 (Render uses >= 15).

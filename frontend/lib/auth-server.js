@@ -34,12 +34,15 @@ export async function createSession(userId) {
 }
 
 // Returns the signed-in user row (or null) for a request's session token.
+// `is_admin` comes from the profile row — the query/events routes use it to
+// grant review-queue powers (approve/reject map contributions).
 export async function getUserFromToken(token) {
   if (!token) return null
   const { rows } = await query(
-    `SELECT u.id, u.email
+    `SELECT u.id, u.email, COALESCE(p.is_admin, false) AS is_admin
        FROM sessions s
        JOIN users u ON u.id = s.user_id
+       LEFT JOIN profiles p ON p.id = u.id
       WHERE s.token_hash = $1 AND s.expires_at > NOW()`,
     [sha256(token)]
   )

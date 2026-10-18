@@ -96,6 +96,158 @@ ALL_NODES.forEach((n) => {
   }
 })
 
+// Snapshot of the auto-seeded skeleton, kept so community walkways can
+// suppress the straight-line guesses they replace (see registerCommunityWalkways).
+const SKELETON_EDGES = []
+Object.entries(adj).forEach(([fromId, list]) => {
+  list.forEach(({ to, w }) => {
+    if (fromId < to) SKELETON_EDGES.push({ from: fromId, to, w })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Community walkways — the Map Studio payoff.
+//
+// Confirmed walkways (status = 'published', gathered on foot in the studio)
+// are injected into this graph at runtime, so every approved session makes
+// everybody's in-market directions more accurate. Two things happen per
+// walkway:
+//   1. Its vertices become real nodes, connected edge-to-edge with true
+//      Haversine lengths. (The seeded skeleton only knows 11 KML points and
+//      connects them with straight lines through walls.)
+//   2. Any skeleton edge the walkway shadows — both its endpoints lying
+//      within SHADOW_M of the traced polyline — is removed, because a traced
+//      path is ground truth and the straight chord it replaces was a guess.
+// Stairs are weighted higher so routing prefers a level walk when one
+// exists, the way people actually move through a market.
+// ---------------------------------------------------------------------------
+const SHADOW_M = 45
+const STAIRS_WEIGHT = 2.5
+const registeredCommunityIds = new Set()
+
+function pointToPolylineM(lat, lng, line) {
+  // Distance from a point to a polyline (segment-wise min).
+  let best = Infinity
+  for (let i = 1; i < line.length; i++) {
+    const d = pointToSegmentM(lat, lng, line[i - 1], line[i])
+    if (d < best) best = d
+  }
+  return best
+}
+
+function pointToSegmentM(lat, lng, a, b) {
+  // Planar approximation is fine at market scale (~1.5 km).
+  const mPerLat = 111320
+  const mPerLng = 111320 * Math.cos((lat * Math.PI) / 180)
+  const ax = a[1] * mPerLng, ay = a[0] * mPerLat
+  const bx = b[1] * mPerLng, by = b[0] * mPerLat
+  const px = lng * mPerLng, py = lat * mPerLat
+  const dx = bx - ax, dy = by - ay
+  const lenSq = dx * dx + dy * dy
+  let t = lenSq === 0 ? 0 : ((px - ax) * dx + (py - ay) * dy) / lenSq
+  t = Math.max(0, Math.min(1, t))
+  const cx = ax + t * dx, cy = ay + t * dy
+  return Math.hypot(px - cx, py - cy)
+}
+
+// Remove a community node: drop it from the graph and every edge touching it.
+function removeCommunityNode(id) {
+  delete adj[id]
+  delete nodeById[id]
+  const idx = ALL_NODES.findIndex((n) => n.id === id)
+  if (idx >= 0) ALL_NODES.splice(idx, 1)
+  Object.keys(adj).forEach((k) => {
+    adj[k] = adj[k].filter((e) => e.to !== id)
+  })
+}
+
+/**
+ * Merge confirmed community walkways into the routing graph.
+ * Idempotent: re-calling with the same list is a no-op; re-calling after an
+ * admin publishes/updates a walkway re-registers just that one.
+ *
+ * @param {Array} walkways rows with { id, kind, name, geometry }
+ *        (geometry: [[lat,lng], …] or a JSON string, as stored).
+ */
+export function registerCommunityWalkways(walkways) {
+  const list = Array.isArray(walkways) ? walkways : []
+  const seen = new Set()
+
+  list.forEach((w) => {
+    if (!w?.id) return
+    seen.add(w.id)
+    if (registeredCommunityIds.has(w.id)) return
+    let geom = w.geometry
+    if (typeof geom === 'string') {
+      try { geom = JSON.parse(geom) } catch { return }
+    }
+    if (!Array.isArray(geom) || geom.length < 2) return
+    const pts = geom
+      .map((p) => (Array.isArray(p) ? [Number(p[0]), Number(p[1])] : null))
+      .filter((p) => p && Number.isFinite(p[0]) && Number.isFinite(p[1]))
+    if (pts.length < 2) return
+
+    const prefix = `cw-${w.id}`
+    const factor = w.kind === 'stairs' ? STAIRS_WEIGHT : 1
+    const label = w.name || w.kind || 'walkway'
+
+    // 1. Suppress the skeleton chords this walkway replaces.
+    SKELETON_EDGES.forEach((e) => {
+      const a = nodeById[e.from]
+      const b = nodeById[e.to]
+      if (!a || !b) return
+      if (
+        pointToPolylineM(a.lat, a.lng, pts) <= SHADOW_M &&
+        pointToPolylineM(b.lat, b.lng, pts) <= SHADOW_M
+      ) {
+        adj[e.from] = (adj[e.from] || []).filter((x) => x.to !== e.to)
+        adj[e.to] = (adj[e.to] || []).filter((x) => x.to !== e.from)
+      }
+    })
+
+    // 2. Add the traced vertices as nodes, wired end to end.
+    const ids = []
+    pts.forEach(([lat, lng], i) => {
+      const id = `${prefix}-${i}`
+      if (!nodeById[id]) {
+        const node = { id, name: label, lat, lng }
+        ALL_NODES.push(node)
+        nodeById[id] = node
+        adj[id] = []
+      }
+      ids.push(id)
+    })
+    for (let i = 1; i < ids.length; i++) {
+      const wgt = nodeMeters(nodeById[ids[i - 1]], nodeById[ids[i]]) * factor
+      addEdge(ids[i - 1], ids[i], Math.max(1, wgt))
+    }
+
+    // 3. Let the walkway's endpoints act as entry/exit points: connect each
+    //    end to whichever existing node is closest, so a shopper's GPS fix
+    //    can hop onto the traced path.
+    ;[ids[0], ids[ids.length - 1]].forEach((endId) => {
+      const end = nodeById[endId]
+      let best = null
+      let bestD = Infinity
+      ALL_NODES.forEach((n) => {
+        if (n.id === endId || n.id.startsWith(`${prefix}-`)) return
+        const d = nodeMeters(end, n)
+        if (d < bestD) { bestD = d; best = n }
+      })
+      if (best && bestD < 120) addEdge(endId, best.id, bestD)
+    })
+
+    registeredCommunityIds.add(w.id)
+  })
+
+  // A walkway the admin later rejected/removed leaves the graph again.
+  registeredCommunityIds.forEach((id) => {
+    if (seen.has(id)) return
+    registeredCommunityIds.delete(id)
+    ALL_NODES.filter((n) => n.id.startsWith(`cw-${id}-`)).forEach((n) => removeCommunityNode(n.id))
+  })
+}
+
 // ---------------------------------------------------------------------------
 // Routing
 // ---------------------------------------------------------------------------

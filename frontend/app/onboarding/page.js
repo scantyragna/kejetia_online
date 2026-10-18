@@ -398,7 +398,7 @@ export default function OnboardingPage() {
                 <LiveMap
                   height={340}
                   center={{ lat: store.latitude, lng: store.longitude }}
-                  zoom={16}
+                  zoom={17}
                   showLandmarks
                   showUserLocation
                   onLocationPick={({ lat, lng }) => {

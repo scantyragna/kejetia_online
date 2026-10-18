@@ -4,7 +4,6 @@ import { useCallback, useState, useEffect } from 'react'
 import { useParams } from 'next/navigation'
 import { getSupabase } from '@/lib/supabase'
 import { useAuth } from '@/context/auth-context'
-import { useLiveLocations } from '@/hooks/useLiveLocations'
 import Header from '@/components/Header'
 import LiveMap from '@/components/maps/LiveMap'
 import ProductImage from '@/components/ProductImage'
@@ -12,6 +11,7 @@ import { MARKET_CATEGORIES } from '@/lib/categories'
 import { PRODUCT_SORTS, sortProducts, stockLabel, isOutOfStock, discountPct } from '@/lib/products'
 import { fetchStoreReviews, addStoreReview, timeAgo } from '@/lib/reviews'
 import { directionsUrl } from '@/lib/directions'
+import { usePublishedMap } from '@/hooks/usePublishedMap'
 import { Icon, iconNameFor } from '@/components/icons'
 
 const TABS = [
@@ -39,14 +39,40 @@ export default function StorePage() {
   const [submittingReview, setSubmittingReview] = useState(false)
   const [reviewMsg, setReviewMsg] = useState(null) // { ok: boolean, text: string }
 
-  // Bare map: live dots + shared trails — only while the map tab is open.
-  const {
-    locations: liveLocations,
-    trails: liveTrails,
-    shareStatus,
-    shareError,
-    requestShare,
-  } = useLiveLocations({ enabled: tab === 'map' })
+  // The public map layer: crowd-surveyed landmarks + walkways that an admin
+  // has confirmed. Drafts never reach here (the API filters them); this just
+  // reads the published set and stays fresh over the realtime poll.
+  const published = usePublishedMap({ enabled: tab === 'map' })
+  const [reporting, setReporting] = useState(false)
+
+  const reportLandmark = useCallback(async (landmarkId) => {
+    if (!user) {
+      window.alert('Sign in to report a pin so admins know who to trust.')
+      return
+    }
+    const reason = window.prompt(
+      'Why is this pin wrong? (e.g. "moved", "duplicate", "not a landmark")'
+    )
+    if (reason === null) return // cancelled
+    setReporting(true)
+    try {
+      const sb = getSupabase()
+      const { error } = await sb.from('map_reports').insert({
+        feature_table: 'landmarks',
+        feature_id: landmarkId,
+        reason: String(reason).trim() || 'other',
+      })
+      window.alert(
+        error
+          ? `Could not send the report: ${error.message}`
+          : 'Thanks — an admin will review this pin.'
+      )
+    } catch (err) {
+      window.alert(`Could not send the report: ${err?.message || 'unknown error'}`)
+    } finally {
+      setReporting(false)
+    }
+  }, [user])
 
   const isOwner = Boolean(user && store && store.owner_id && store.owner_id === user.id)
 
@@ -58,7 +84,20 @@ export default function StorePage() {
       .select('*')
       .eq('id', id)
       .single()
-    setStore(storeData)
+
+    // The signboard falls back to the seller's profile picture when the
+    // store has no photo of its own, so the owner's avatar rides along.
+    let withAvatar = storeData
+    if (storeData?.owner_id) {
+      const { data: owner } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', storeData.owner_id)
+        .single()
+        .catch(() => ({ data: null }))
+      withAvatar = { ...storeData, ownerAvatar: owner?.avatar_url || null }
+    }
+    setStore(withAvatar)
 
     if (storeData) {
       const sb = getSupabase()
@@ -515,17 +554,15 @@ export default function StorePage() {
             <div style={styles.mapContainer}>
               <LiveMap
                 stores={[store]}
-                userLocations={liveLocations}
-                trails={liveTrails}
+                landmarks={published.landmarks}
+                walkways={published.walkways}
                 height={360}
                 center={{ lat: store.latitude, lng: store.longitude }}
-                zoom={16}
+                zoom={17}
                 selectedStoreId={store.id}
-                showLandmarks={false}
+                showLandmarks
                 showUserLocation
-                onShareLocation={requestShare}
-                shareStatus={shareStatus}
-                shareError={shareError}
+                onReportLandmark={reporting ? undefined : reportLandmark}
               />
             </div>
             <p style={styles.mapHint}>

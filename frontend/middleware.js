@@ -13,7 +13,7 @@ export async function middleware(request) {
   const token = request.cookies.get(SESSION_COOKIE)?.value
   const isSignedIn = Boolean(token)
 
-  const protectedPaths = ['/dashboard', '/chat', '/onboarding']
+  const protectedPaths = ['/dashboard', '/chat', '/onboarding', '/studio']
   const isProtected = protectedPaths.some((p) =>
     request.nextUrl.pathname.startsWith(p)
   )

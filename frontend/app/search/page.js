@@ -5,10 +5,8 @@ import { useSearchParams, useRouter } from 'next/navigation'
 import { getSupabase } from '@/lib/supabase'
 import { directionsUrl } from '@/lib/directions'
 import { useAuth } from '@/context/auth-context'
-import { useLiveLocations } from '@/hooks/useLiveLocations'
 import Header from '@/components/Header'
 import LiveMap from '@/components/maps/LiveMap'
-import AddLandmarkModal from '@/components/AddLandmarkModal'
 import ProductImage from '@/components/ProductImage'
 import { MARKET_CATEGORIES } from '@/lib/categories'
 import { PRODUCT_SORTS, sortProducts, stockLabel, isOutOfStock, discountPct } from '@/lib/products'
@@ -34,22 +32,14 @@ function SearchContent() {
   const [stores, setStores] = useState([])
   const [products, setProducts] = useState([])
   const [selectedStore, setSelectedStore] = useState(null)
-  const [allLandmarks, setAllLandmarks] = useState([])
-  const [landmarkMode, setLandmarkMode] = useState(false)
-  const [showCapture, setShowCapture] = useState(false)
   const [view, setView] = useState('grid')
   const [loading, setLoading] = useState(false)
   const [catFilter, setCatFilter] = useState('')
   const [sort, setSort] = useState('featured')
 
-  // Bare map: live dots + shared breadcrumb trails — active in map view.
-  const {
-    locations: liveLocations,
-    trails: liveTrails,
-    shareStatus,
-    shareError,
-    requestShare,
-  } = useLiveLocations({ enabled: view === 'map' })
+  // The platform map is signboards only: live shopper dots, breadcrumb
+  // trails and crowd landmark capture all live in the sandbox sub-project
+  // (see /sandbox), so nothing here competes with store placement.
 
   const applyFilter = useCallback((term, storeRows, productRows, cat) => {
     const q = (term || '').trim().toLowerCase()
@@ -90,19 +80,24 @@ function SearchContent() {
   }, [])
 
   // Full marketplace fetch — shared by the initial load and the live
-  // subscription below (so stores/products/landmarks added by any user
-  // appear without a manual refresh).
+  // subscription below (so stores/products added by any user appear without
+  // a manual refresh). Profiles ride along purely so each store's signboard
+  // can fall back to the owner's avatar when they have no store photo.
   const fetchAll = useCallback(async () => {
     const sb = getSupabase()
     if (!sb) return
-    const [{ data: storeRows }, { data: productRows }, { data: landmarkRows }] = await Promise.all([
+    const [{ data: storeRows }, { data: productRows }, { data: profileRows }] = await Promise.all([
       sb.from('stores').select('*').eq('is_active', true).order('created_at', { ascending: false }),
       sb.from('products').select('*').eq('is_available', true),
-      sb.from('landmarks').select('*').order('created_at', { ascending: false }),
+      sb.from('profiles').select('*'),
     ])
-    setAllStores(storeRows || [])
+    const profileById = Object.fromEntries((profileRows || []).map((p) => [p.id, p]))
+    const signboards = (storeRows || []).map((s) => ({
+      ...s,
+      ownerAvatar: profileById[s.owner_id]?.avatar_url || null,
+    }))
+    setAllStores(signboards)
     setAllProducts(productRows || [])
-    setLandmarksWithStores(storeRows || [], landmarkRows || [])
   }, [])
 
   useEffect(() => {
@@ -124,32 +119,12 @@ function SearchContent() {
       .channel('search-marketplace-live')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'stores' }, fetchAll)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'products' }, fetchAll)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'landmarks' }, fetchAll)
       .subscribe()
     return () => {
       const s2 = getSupabase()
       if (s2) s2.removeChannel(channel)
     }
   }, [fetchAll])
-
-  const setLandmarksWithStores = (storeRows, landmarkRows) => {
-    const storeById = Object.fromEntries((storeRows || []).map((s) => [s.id, s]))
-    setAllLandmarks(
-      (landmarkRows || []).map((lm) => ({
-        ...lm,
-        store_name: lm.store_id ? storeById[lm.store_id]?.name || '' : '',
-      }))
-    )
-  }
-
-  // Re-fetch landmarks after a new one is published.
-  const refreshLandmarks = async () => {
-    const sb = getSupabase()
-    if (!sb) return
-    const { data: rows } = await sb.from('landmarks').select('*').order('created_at', { ascending: false })
-    setLandmarksWithStores(allStores, rows || [])
-    setShowCapture(false)
-  }
 
   // Re-apply text + category filters whenever the query, chips or raw data change.
   useEffect(() => {
@@ -354,99 +329,50 @@ function SearchContent() {
                 <div style={styles.mapListToggle} role="tablist" aria-label="Browse map items">
                   <button
                     role="tab"
-                    aria-selected={!landmarkMode}
-                    onClick={() => setLandmarkMode(false)}
-                    style={{ ...styles.mapListTab, ...(!landmarkMode ? styles.mapListTabActive : {}) }}
+                    aria-selected
+                    style={{ ...styles.mapListTab, ...styles.mapListTabActive }}
                   >
                     Stores <span style={styles.mapListCount}>{stores.length}</span>
-                  </button>
-                  <button
-                    role="tab"
-                    aria-selected={landmarkMode}
-                    onClick={() => setLandmarkMode(true)}
-                    style={{ ...styles.mapListTab, ...(landmarkMode ? styles.mapListTabActive : {}) }}
-                  >
-                    Landmarks <span style={styles.mapListCount}>{allLandmarks.length}</span>
                   </button>
                 </div>
               </div>
 
-              {!landmarkMode ? (
-                <>
-                  {stores.length === 0 && (
-                    <p style={styles.mapListEmpty}>
-                      No stores on the map yet — sellers appear here when they join. Tap{' '}
-                      <strong>Landmarks</strong> to see photo pins of store fronts & spots.
-                    </p>
-                  )}
-                  {stores.map((store) => (
-                    <div
-                      key={store.id}
-                      style={{ ...styles.mapStore, ...(selectedStore?.id === store.id ? styles.mapStoreActive : {}) }}
-                      onClick={() => setSelectedStore(store)}
-                    >
-                      <span style={styles.mapStoreAvatar}>{store.name.charAt(0)}</span>
-                      <div style={styles.mapStoreInfo}>
-                        <strong style={styles.mapStoreName}>{store.name}</strong>
-                        <span style={styles.mapStoreLoc}>{String(store.address || '').split(',')[0]}</span>
-                        {store.rating ? (
-                          <span style={styles.mapStoreRating}>
-                            <Icon name="star" size={12} color="#f59e0b" /> {Number(store.rating).toFixed(1)} ({store.review_count})
-                          </span>
-                        ) : null}
-                      </div>
-                      <a href={`/store/${store.id}`} style={styles.mapStoreLink}>
-                        View <Icon name="arrow-right" size={12} />
-                      </a>
-                    </div>
-                  ))}
-                </>
-              ) : (
-                <>
-                  {allLandmarks.length === 0 ? (
-                    <p style={styles.mapListEmpty}>
-                      No landmarks yet — tap{' '}<strong>＋ Add landmark</strong> on the map to pin & photo a store front or spot.
-                    </p>
-                  ) : (
-                    allLandmarks.map((lm) => (
-                      <div key={lm.id} style={styles.lmCard}>
-                        {lm.photo_url ? (
-                          <img src={lm.photo_url} alt={lm.name} style={styles.lmCardImg} />
-                        ) : (
-                          <div style={styles.lmCardImgEmpty}>🏪</div>
-                        )}
-                        <div style={styles.lmCardBody}>
-                          <strong style={styles.lmCardName}>{lm.name}</strong>
-                          {lm.notes && <span style={styles.lmCardNotes}>{lm.notes}</span>}
-                          {lm.store_id && lm.store_name ? (
-                            <a href={`/store/${lm.store_id}`} style={styles.lmCardStore}>
-                              🏪 {lm.store_name} <Icon name="arrow-right" size={11} />
-                            </a>
-                          ) : (
-                            <span style={styles.lmCardTag}>Landmark</span>
-                          )}
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </>
+              {stores.length === 0 && (
+                <p style={styles.mapListEmpty}>
+                  No stores on the map yet — sellers appear here as soon as they pin
+                  their signboard while setting up their store.
+                </p>
               )}
+              {stores.map((store) => (
+                <div
+                  key={store.id}
+                  style={{ ...styles.mapStore, ...(selectedStore?.id === store.id ? styles.mapStoreActive : {}) }}
+                  onClick={() => setSelectedStore(store)}
+                >
+                  <span style={styles.mapStoreAvatar}>{store.name.charAt(0)}</span>
+                  <div style={styles.mapStoreInfo}>
+                    <strong style={styles.mapStoreName}>{store.name}</strong>
+                    <span style={styles.mapStoreLoc}>{String(store.address || '').split(',')[0]}</span>
+                    {store.rating ? (
+                      <span style={styles.mapStoreRating}>
+                        <Icon name="star" size={12} color="#f59e0b" /> {Number(store.rating).toFixed(1)} ({store.review_count})
+                      </span>
+                    ) : null}
+                  </div>
+                  <a href={`/store/${store.id}`} style={styles.mapStoreLink}>
+                    View <Icon name="arrow-right" size={12} />
+                  </a>
+                </div>
+              ))}
             </div>
             <div className="ko-map-wrap" style={styles.mapWrap}>
               <LiveMap
                 stores={stores}
-                landmarks={allLandmarks}
-                userLocations={liveLocations}
-                trails={liveTrails}
                 onStoreClick={setSelectedStore}
                 height="100%"
                 selectedStoreId={selectedStore?.id}
-                autoLocate
-                onShareLocation={requestShare}
-                shareStatus={shareStatus}
-                shareError={shareError}
               />
-              {selectedStore && !landmarkMode && (
+              {selectedStore && (
                 <div style={styles.mapPopup}>
                   <strong style={styles.mapPopupName}>{selectedStore.name}</strong>
                   <p style={styles.mapPopupAddr}>{selectedStore.address}</p>
@@ -458,27 +384,8 @@ function SearchContent() {
                   </div>
                 </div>
               )}
-              <button
-                type="button"
-                onClick={() => (user ? setShowCapture(true) : router.push('/auth/login'))}
-                style={styles.lmFab}
-                className="ko-lm-fab"
-                title="Pin & photo a store front or landmark"
-              >
-                <Icon name="camera" size={17} color="currentColor" />
-                Add landmark
-              </button>
             </div>
           </div>
-        )}
-
-        {showCapture && (
-          <AddLandmarkModal
-            stores={allStores}
-            user={user}
-            onClose={() => setShowCapture(false)}
-            onSaved={refreshLandmarks}
-          />
         )}
       </div>
     </div>

@@ -20,6 +20,16 @@ export default function Header({ user, profile, onSignOut }) {
           <a href={storeUrl} style={styles.navLink}>Stores</a>
           <a href="/directions" style={styles.navLink}>Directions</a>
           {user && (
+            <a href="/studio" style={styles.navLink}>
+              Map Studio
+            </a>
+          )}
+          {user && profile?.is_admin && (
+            <a href="/admin/map" style={styles.navLink}>
+              Map Admin
+            </a>
+          )}
+          {user && (
             <a href={dashUrl} style={styles.navLink}>
               {profile?.role === 'seller' ? 'Dashboard' : 'Messages'}
             </a>
@@ -62,6 +72,10 @@ export default function Header({ user, profile, onSignOut }) {
           <a href="/directions" style={styles.mobileLink} onClick={() => setOpen(false)}>Directions</a>
           {user ? (
             <>
+              <a href="/studio" style={styles.mobileLink} onClick={() => setOpen(false)}>Map Studio</a>
+              {profile?.is_admin && (
+                <a href="/admin/map" style={styles.mobileLink} onClick={() => setOpen(false)}>Map Admin</a>
+              )}
               <a href={dashUrl} style={styles.mobileLink} onClick={() => setOpen(false)}>
                 {profile?.role === 'seller' ? 'Dashboard' : 'Messages'}
               </a>

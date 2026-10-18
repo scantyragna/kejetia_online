@@ -69,20 +69,107 @@ const ICONS = {
   market: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>',
 }
 
-// Google-style place card shown inside the Leaflet popup.
-function placeCard(store) {
+// Escape anything we interpolate into a Leaflet HTML string (store names are
+// user-typed — they must never be able to inject markup into a popup).
+function esc(v) {
+  return String(v == null ? '' : v).replace(/[&<>"']/g, (c) => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] || c
+  ))
+}
+
+// Two-letter monogram used when a store has no photo to show.
+function initialsOf(name) {
+  const parts = String(name || '?').trim().split(/\s+/).filter(Boolean)
+  const letters = parts.slice(0, 2).map((w) => w[0]).join('')
+  return (letters || '?').toUpperCase()
+}
+
+function photoOf(store) {
+  // Store photo first, then the seller's profile avatar — the board should
+  // still carry a face when they never uploaded a shop picture.
+  return store.image_url || store.ownerAvatar || ''
+}
+
+/**
+ * The store signboard — a photo/name board on a post that a seller plants
+ * when they pin their stall. This is the "iconic vintage point" shoppers use
+ * to orient themselves in the market, so it carries the store identity:
+ * picture (or monogram), name and category.
+ */
+function signboardHtml(store) {
+  const photo = photoOf(store)
+  const img = photo
+    ? `<img class="lm-sign-img" src="${esc(photo)}" alt="" loading="lazy"
+         onerror="this.style.display='none';this.parentNode.classList.add('no-img')">`
+    : ''
+  const category = String(store.category || '').trim() || 'Store'
   return `
-    <div class="lm-place-card">
-      <div class="lm-place-name">${store.name}</div>
-      <div class="lm-place-addr">${store.address || 'Kejetia Market, Kumasi'}</div>
-      ${store.phone ? `<div class="lm-place-phone">${store.phone}</div>` : ''}
-      <div class="lm-place-actions">
-        <a class="lm-place-btn lm-place-btn-primary"
-           href="${directionsUrl({ name: store.name, lat: store.latitude, lng: store.longitude })}">Directions</a>
-        <a class="lm-place-btn" href="/store/${store.id}">View Store</a>
+    <div class="lm-sign">
+      <div class="lm-sign-sway">
+        <div class="lm-sign-board">
+          <span class="lm-sign-photo ${photo ? '' : 'no-img'}">
+            ${img}<span class="lm-sign-initials">${esc(initialsOf(store.name))}</span>
+          </span>
+          <span class="lm-sign-text">
+            <span class="lm-sign-name">${esc(store.name || 'Store')}</span>
+            <span class="lm-sign-cat">${esc(category)}</span>
+          </span>
+        </div>
+        <div class="lm-sign-pole"></div>
       </div>
     </div>
   `
+}
+
+// Google-style place card shown inside the Leaflet popup.
+function placeCard(store) {
+  const photo = photoOf(store)
+  const category = String(store.category || '').trim() || 'Store'
+  const badge = photo
+    ? `<img class="lm-place-photo" src="${esc(photo)}" alt="" onerror="this.remove()">`
+    : `<span class="lm-place-photo lm-place-photo--initials">${esc(initialsOf(store.name))}</span>`
+  return `
+    <div class="lm-place-card">
+      <div class="lm-place-id">
+        ${badge}
+        <div class="lm-place-idtext">
+          <div class="lm-place-name">${esc(store.name)}</div>
+          <div class="lm-place-cat">${esc(category)}</div>
+        </div>
+      </div>
+      <div class="lm-place-addr">${esc(store.address || 'Kejetia Market, Kumasi')}</div>
+      ${store.phone ? `<div class="lm-place-phone">${esc(store.phone)}</div>` : ''}
+      <div class="lm-place-actions">
+        <a class="lm-place-btn lm-place-btn-primary"
+           href="${directionsUrl({ name: store.name, lat: store.latitude, lng: store.longitude })}">Directions</a>
+        <a class="lm-place-btn" href="/store/${esc(store.id)}">View Store</a>
+      </div>
+    </div>
+  `
+}
+
+// Visual identity for a contributed walkway line. Kind drives the color
+// (so a reviewer sees "blue = road, orange = stairs" at a glance); status
+// drives the dashing — drafts read as tentative, published as solid ground.
+function walkwayStyle(w) {
+  const KIND_COLORS = {
+    walkway: '#16a34a',
+    road: '#2563eb',
+    stairs: '#ea580c',
+    entrance: '#9333ea',
+    crossing: '#0d9488',
+    other: '#64748b',
+  }
+  const color = KIND_COLORS[w.kind] || KIND_COLORS.other
+  const pending = w.status !== 'published'
+  return {
+    color,
+    weight: pending ? 4 : 5,
+    opacity: pending ? 0.55 : 0.9,
+    dashArray: pending ? '6, 8' : null,
+    lineCap: 'round',
+    lineJoin: 'round',
+  }
 }
 
 function flyIconCss(anchorY) {
@@ -144,12 +231,17 @@ function landmarkCard(l) {
       ${storeLink}
       <a href="${directionsUrl({ name: l.name, lat: l.latitude, lng: l.longitude })}" style="margin-left:auto;padding:6px 12px;background:#1a73e8;color:#fff;border-radius:8px;font-size:12px;font-weight:600;text-decoration:none">Directions</a>
     </div>
+    <button type="button" data-report-landmark="${esc(l.id)}"
+      style="margin-top:10px;border:none;background:transparent;color:#9aa3b2;font-size:11px;cursor:pointer;padding:0;text-decoration:underline">
+      Report this pin
+    </button>
   </div>`
 }
 
 export default function LiveMap({
   stores = [],
   landmarks = [],
+  walkways = [],
   userLocations = [],
   trails = [],
   onStoreClick,
@@ -178,6 +270,10 @@ export default function LiveMap({
   routes = null,
   navTrip = null,
   onNavEnd = null,
+  // Fired when someone taps "Report this pin" in a landmark popup. The map
+  // itself doesn't know about auth or the reports table — the page decides
+  // whether to prompt for a reason and who may file it.
+  onReportLandmark = null,
 }) {
   const mapRef = useRef(null)
   const containerRef = useRef(null)
@@ -222,6 +318,8 @@ export default function LiveMap({
   const onLocationPickRef = useRef(onLocationPick)
   onStoreClickRef.current = onStoreClick
   onLocationPickRef.current = onLocationPick
+  const onReportLandmarkRef = useRef(onReportLandmark)
+  onReportLandmarkRef.current = onReportLandmark
   // The Leaflet locate control is created once inside init(), so it has to
   // read the latest share callback through a ref.
   const onShareLocationRef = useRef(onShareLocation)
@@ -230,6 +328,7 @@ export default function LiveMap({
   const staticFlagsRef = useRef({ showStaticLandmarks, showKejetiaCenter, showLandmarks })
   staticFlagsRef.current = { showStaticLandmarks, showKejetiaCenter, showLandmarks }
   const trailLayersRef = useRef([])
+  const walkwayLayersRef = useRef([])
 
   // Whether we're at Kejetia zoom level
   const isKejetiaZoom = currentZoom >= ZOOM_KEJETIA_OVERLAY
@@ -1007,6 +1106,38 @@ export default function LiveMap({
     })
   }, [trails, showTrails, mapReady])
 
+  // ── Contributed walkways: the user-drawn ground truth ──
+  // Published lines are solid; drafts/rejected are dashed + faded so a
+  // reviewer (or the studio owner watching their own work) can tell what is
+  // confirmed from what is still awaiting approval.
+  useEffect(() => {
+    const map = mapInstanceRef.current
+    const L = leafletRef.current
+    if (!map || !L || !mapReady) return
+    walkwayLayersRef.current.forEach((l) => map.removeLayer(l))
+    walkwayLayersRef.current = []
+    if (!Array.isArray(walkways) || !walkways.length) return
+
+    walkways.forEach((w) => {
+      const pts = typeof w.geometry === 'string' ? (() => { try { return JSON.parse(w.geometry) } catch { return [] } })() : w.geometry
+      const path = (Array.isArray(pts) ? pts : [])
+        .filter((p) => Array.isArray(p) && Number.isFinite(Number(p[0])) && Number.isFinite(Number(p[1])))
+        .map((p) => [Number(p[0]), Number(p[1])])
+      if (path.length < 2) return
+
+      // White halo under every line so it stays readable over satellite
+      // imagery and the Kejetia photo overlay alike.
+      walkwayLayersRef.current.push(
+        L.polyline(path, { color: '#fff', weight: w.status === 'published' ? 8 : 7, opacity: 0.6, lineCap: 'round', lineJoin: 'round', interactive: false }).addTo(map)
+      )
+      const style = walkwayStyle(w)
+      const line = L.polyline(path, { ...style, interactive: true }).addTo(map)
+      const label = w.name ? `${w.name} · ${w.kind}` : w.kind
+      line.bindTooltip(label, { sticky: true, direction: 'top', className: 'lm-landmark-tip' })
+      walkwayLayersRef.current.push(line)
+    })
+  }, [walkways, mapReady])
+
   // Store pins from the database (diffed).
   useEffect(() => {
     const map = mapInstanceRef.current
@@ -1020,21 +1151,33 @@ export default function LiveMap({
       if (!lat || !lng) return
       seen.add(store.id)
 
+      const makeIcon = () =>
+        L.divIcon({
+          className: 'lm-sign-wrap',
+          html: signboardHtml(store),
+          iconSize: [130, 136],
+          iconAnchor: [65, 130],
+          popupAnchor: [0, -116],
+        })
+
+      // Identity the board is currently showing — rebuilt when the seller
+      // changes their photo, name or category.
+      const sig = [store.name, store.image_url, store.ownerAvatar, store.category]
+        .map((v) => v || '')
+        .join('|')
+
       const existing = markerByIdRef.current[store.id]
       if (existing) {
         existing.setLatLng([lat, lng])
+        if (existing._koSignSig !== sig) {
+          existing._koSignSig = sig
+          existing.setIcon(makeIcon())
+        }
         return
       }
 
-      const icon = L.divIcon({
-        className: 'lm-store-pin',
-        html: '<div class="pin-body"></div>',
-        iconSize: [34, 44],
-        iconAnchor: [17, 41],
-        popupAnchor: [0, -36],
-      })
-
-      const marker = L.marker([lat, lng], { icon, title: store.name, zIndexOffset: 10 })
+      const marker = L.marker([lat, lng], { icon: makeIcon(), title: store.name, zIndexOffset: 20 })
+      marker._koSignSig = sig
       if (onStoreClickRef.current) {
         marker.on('click', () => onStoreClickRef.current(store))
       } else {
@@ -1053,6 +1196,16 @@ export default function LiveMap({
       markersRef.current = markersRef.current.filter((x) => x !== m)
     })
   }, [stores, mapReady])
+
+  // Signboards shrink while zoomed out so a city-wide view stays readable,
+  // and stand up to full size once you're close enough to read the name.
+  useEffect(() => {
+    const far = currentZoom < 15
+    Object.values(markerByIdRef.current).forEach((m) => {
+      const el = typeof m.getElement === 'function' ? m.getElement() : null
+      if (el) el.classList.toggle('lm-sign-far', far)
+    })
+  }, [currentZoom, stores, mapReady])
 
   // ── User photo-landmark pins (store fronts, spots) ──
   useEffect(() => {
@@ -1102,6 +1255,23 @@ export default function LiveMap({
       delete landmarkPhotoByIdRef.current[id]
     })
   }, [landmarks, mapReady])
+
+  // ── Report-a-pin delegation ──
+  // Landmark popups are HTML strings, so the report button can't carry a
+  // React handler. One click listener on the map container resolves it.
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el || !onReportLandmark) return undefined
+    const onClick = (e) => {
+      const btn = e.target?.closest?.('[data-report-landmark]')
+      if (!btn) return
+      e.preventDefault()
+      const id = btn.getAttribute('data-report-landmark')
+      if (id) onReportLandmarkRef.current?.(id)
+    }
+    el.addEventListener('click', onClick)
+    return () => el.removeEventListener('click', onClick)
+  }, [onReportLandmark])
 
   // Highlight + open the selected store.
   useEffect(() => {

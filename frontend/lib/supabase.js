@@ -336,6 +336,11 @@ function createMockQuery(tableName, initialRows = []) {
     update(payload) { pendingOp = { type: 'update', payload }; return query },
     delete() { pendingOp = { type: 'delete' }; return query },
     then(resolve, reject) { Promise.resolve(run()).then(resolve, reject) },
+    // Make the builder a full thenable — callers (and our own hooks) chain
+    // `.catch()` directly on it, which would otherwise throw
+    // "…catch is not a function" because only `then` was implemented.
+    // Run lazily inside the chain so a synchronous throw becomes a rejection.
+    catch(reject) { return Promise.resolve().then(run).catch(reject) },
   }
 
   return query
@@ -382,6 +387,9 @@ function createRemoteQuery(tableName) {
     update(payload) { ops.push({ op: 'update', args: [payload] }); return query },
     delete() { ops.push({ op: 'delete', args: [] }); return query },
     then(resolve, reject) { exec().then(resolve, reject) },
+    // Same as the mock builder: callers chain `.catch()` straight onto the
+    // builder, so it must exist or the call site throws a TypeError.
+    catch(reject) { return exec().catch(reject) },
   }
 
   return query
