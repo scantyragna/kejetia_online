@@ -1,153 +1,141 @@
-# Kejetia Online — Deployment Runbook (Render, full-stack)
+# Deploying Kejetia Online
 
-Exact steps to take the platform from this repo to a live site on **Render**,
-where one web service hosts both the frontend and the backend (Next.js API
-routes in `app/api/*`) and one managed Postgres database stores everything.
+Status as of the last commit (`af58336`):
 
-**Total time: ~20 minutes** (most of it waiting on Render to build/deploy).
-No code changes needed — the app is deploy-ready.
+- ✅ All code pushed to GitHub → `github.com/scantyragna/kejetia_online` (branch `main`)
+- ✅ `render.yaml` configured for an **external Neon** database (no Render DB — Render's
+  free Postgres expires after 30 days; Neon's free tier does not)
+- ✅ `Dockerfile` runs the schema migration automatically on every boot
+- ⬜ **Left to do:** create the Neon + Render accounts, wire them, grant yourself admin,
+  then test on a real phone
 
----
-
-## Architecture in one paragraph
-
-There is **no separate backend server**. The Next.js app in `frontend/` is the
-whole stack:
-
-- Browser JS talks to our own API routes (`/api/query`, `/api/auth/*`,
-  `/api/events`, `/api/media/*`) instead of Supabase.
-- Those routes run SQL against Render Postgres and enforce authorization
-  server-side (this replaces Supabase's Row Level Security).
-- Realtime (live map, chat, cross-user sync) is HTTP polling of
-  `/api/events` (~2s) from the browser.
-- Images (photos) are stored as `BYTEA` in the `media` table and served via
-  `/api/media/{bucket}/{key}` — no object store needed.
-- The schema lives in `frontend/db/schema.sql` and is applied automatically
-  on container boot by `frontend/scripts/migrate.mjs` (idempotent).
-
-Two environment variables drive everything:
-
-| Variable | Where | Meaning |
-|---|---|---|
-| `NEXT_PUBLIC_DB_MODE` | build-time (Render env) | `postgres` = real backend; unset = browser-local mock mode |
-| `DATABASE_URL` | server-only | Postgres connection string (injected automatically by the Blueprint) |
+Everything below happens in a browser except the two `node` commands, which you run
+locally.
 
 ---
 
-## Prerequisites
+## 0. What you need
 
-- [x] GitHub repo: `https://github.com/scantyragna/kejetia_online` (pushed)
-- [ ] A Render account (sign up free at render.com — GitHub login works)
-
----
-
-## Step 1 — Deploy on Render with the Blueprint (5 min)
-
-The repo contains `render.yaml` — a **Blueprint** that provisions both the web
-service and the Postgres database in one go.
-
-1. Go to **render.com → New → Blueprint** (or "Blueprint" on the dashboard).
-2. Pick the `kejetia_online` GitHub repo. Render reads `render.yaml` and shows:
-   - **kejetia-online-web** (Docker web service, root `frontend/`)
-   - **kejetia-db** (Postgres)
-3. Click **Apply**. Render creates the database, builds the image and deploys.
-4. The Blueprint already wires:
-   - `DATABASE_URL` → the database's `connectionString`
-   - `NEXT_PUBLIC_DB_MODE=postgres` → **required**, switches the app out of mock mode
-   - `PORT=3000`
-5. When the build finishes you get a live URL like
-   `https://kejetia-online-web.onrender.com`. **Visit it — the homepage should
-   load with the map.**
-
-> ⚠️ **Free Postgres expires after 30 days.** For "deploy always" persistent
-> hosting, upgrade `kejetia-db` to a paid plan (Render → Databases →
-> kejetia-db → Settings → Plan) **before** the 30-day window closes. After
-> expiry the site loses all data and the database must be recreated.
-
-Other important first deploys:
-
-- **First build takes 3–6 minutes** (Docker image + `npm run build`).
-- The container runs `node scripts/migrate.mjs` at boot, which applies
-  `db/schema.sql` automatically. You do **not** need to run migrations by hand.
-- If a deploy ever fails, check **Render → kejetia-online-web → Logs**:
-  a `[migrate] Failed to apply schema` line would indicate a SQL/DB problem.
-
-## Step 2 — Sanity checks on the live site (5 min)
-
-- [ ] `/` loads, maps render (free CARTO/OSRM tiles — no key needed)
-- [ ] **No red banner** at the top of the page (a red "Database not connected"
-  banner means `NEXT_PUBLIC_DB_MODE` is not `postgres` and the site is
-  running per-browser mock mode — see below)
-- [ ] Sign up as a **seller** → you land in store onboarding
-- [ ] Create the store, add a product **with a photo** → photo uploads to
-  Postgres (the upload returns an `/api/media/product-images/...` URL)
-- [ ] Sign up as a buyer → open the store → the **Chat** tab works
-- [ ] Add a store review → the store's rating updates (server trigger)
-- [ ] **Cross-user sync:** in a second browser/incognito window sign up a
-  different seller and create a store with a product — the first window's
-  homepage and search should show it within a few seconds (no refresh).
-  Two windows chatting should show both sides instantly.
-- [ ] **Live user dots:** with two browsers open on `/search` (Map view), allow
-  location in one of them — the other should show that person as a blue dot
-  within a few seconds.
-
-## If users can't see each other's data (the #1 support issue)
-
-The deployed site is running in **mock mode**. When `NEXT_PUBLIC_DB_MODE` is
-not exactly `postgres` (e.g. the env var was added after the build, or the
-Blueprint's `value: postgres` was removed), the app silently falls back to a
-browser-local demo database. Every user then sees *only their own browser's
-data*.
-
-- **The tell:** a red "Database not connected" banner at the very top of the
-  live site.
-- **The fix:** set/keep `NEXT_PUBLIC_DB_MODE=postgres` on the service's
-  **Environment** tab, then **Deploy → Clear build cache & deploy**, and
-  confirm `DATABASE_URL` is populated (Blueprint services show it as
-  "managed from database kejetia-db"). A successful `migrate.mjs` log line
-  (`[migrate] Schema is up to date.`) confirms the backend is live.
+| Thing | Where | Notes |
+|-------|-------|-------|
+| A Neon account (free) | https://neon.tech | The Postgres database |
+| A Render account (free) | https://render.com | The web hosting |
+| The GitHub repo connected to Render | `scantyragna/kejetia_online` | Already pushed; just connect it |
 
 ---
 
-## Step 3 — Local development (no cloud needed)
+## 1. Create the database (Neon)
+
+1. Sign up at https://neon.tech and create a project.
+2. On the **Dashboard**, find the connection string.
+3. Copy the **POOLED** string — it has `-pooler` in the host, e.g.
+   `ep-xxx-pooler.aws.neon.tech`. **Do not use the direct string**: it has a tiny
+   connection limit and will start refusing connections under real traffic.
+
+   ⚠️ This string is a master key to your database. Don't commit it, don't put it in
+   client-side code, and treat it like a password.
+
+---
+
+## 2. Create the hosting (Render)
+
+1. Sign up at https://render.com.
+2. **New → Blueprint** → connect GitHub → pick `scantyragna/kejetia_online`.
+3. Render reads `render.yaml` and builds the web service. There is deliberately **no
+   database** in the Blueprint — the database is Neon.
+4. Once the service exists, go to **Environment** → add a new env var:
+   - Key: `DATABASE_URL`
+   - Value: your Neon **pooled** connection string
+
+   (`render.yaml` marks it `sync: false` on purpose, so you must paste it by hand.)
+
+5. Wait for it to build and deploy. The first deploy takes a few minutes.
+
+> **What happens on boot:** the container runs
+> `node ./scripts/migrate.mjs && npm start`. The migration applies `db/schema.sql`
+> (including all the Map Studio tables) automatically and idempotently, so there is no
+> manual database setup. If the migration fails, the container refuses to start — check
+> the logs.
+
+---
+
+## 3. Grant yourself admin
+
+The admin flag (`profiles.is_admin`) can't be set from any signup form or API call — it
+must be granted by script. Run this **once** against the live database.
+
+`migrate.mjs` and `make-admin.mjs` read `process.env.DATABASE_URL` directly and do
+**not** load `.env.local` themselves, so export the variable in your shell first:
 
 ```bash
 cd frontend
-npm.cmd install
-npm.cmd run dev          # mock mode: browser-local data, works offline
+export DATABASE_URL="your-neon-pooled-connection-string"   # PowerShell: $env:DATABASE_URL="..."
+node scripts/make-admin.mjs your-email@example.com
 ```
 
-To run against a real Postgres locally:
-
-```bash
-# 1. point at any Postgres (Render DB, Neon, local)
-$env:DATABASE_URL = "postgres://..."
-# 2. apply the schema once
-node ./scripts/migrate.mjs
-# 3. set NEXT_PUBLIC_DB_MODE=postgres in frontend/.env.local, restart dev
-npm.cmd run dev
-```
-
-> `frontend/.env.local` ships with `NEXT_PUBLIC_DB_MODE` commented out so the
-> default is mock mode (no database required). Uncomment it only when a
-> `DATABASE_URL` is actually reachable.
+You should see: `✓ your-email@example.com is now an admin`. After a refresh you'll see
+**Map Admin** in the site header.
 
 ---
 
-## After launch — notes & limits
+## 4. Test on real phones
 
-- **Photos are compressed client-side to < 500 KB** (`frontend/lib/media.js`)
-  and stored in Postgres as `BYTEA`. That compression keeps the database
-  small — keep it; raw phone photos (multi-MB) would bloat the DB and slow
-  the site.
-- **Realtime is HTTP polling (~2s)** — instant enough for chat and the live
-  map, but if chat ever needs true sub-second delivery consider a WebSocket
-  layer (e.g. a small Node service). Fine for now.
-- **Auth** is app-managed: users + sessions live in Postgres, passwords are
-  bcrypt-hashed, and login sets an httpOnly cookie (`kj_session`, 30 days).
-  There is no email verification/confirmation — signup logs you straight in.
-- **Free instances sleep after ~15 min of inactivity** and wake on the next
-  request (first load after an idle period may take ~30 s). Render's paid
-  instance types keep it always-hot.
-- **Regions:** pick a region close to your users when creating the database
-  (e.g. `Frankfurt` for Ghana/Europe) — it cannot be changed after creation.
+Open the deployed HTTPS URL on your phone. **GPS only works over HTTPS** (browsers
+refuse geolocation on plain `http://` and on `localhost`), so this is the only way to
+test the live-mapping feature for real.
+
+- Sign in → **Map Studio** → **Start Trail** → accept the location prompt.
+- Add a photo landmark, label a walkway, submit.
+- On a second phone (or desktop), sign in as the admin account → **Map Admin** →
+  watch the contributor's dot move live and approve the submitted session.
+
+---
+
+## Optional: test against the real database locally first
+
+If you'd rather prove the schema works before Render picks it up:
+
+```bash
+cd frontend
+# Put the Neon pooled string in frontend/.env.local:
+#   DATABASE_URL=postgres://...-pooler...
+#   NEXT_PUBLIC_DB_MODE=postgres
+
+# Apply the schema. The app reads .env.local, but this script does not —
+# so export the var explicitly:
+export DATABASE_URL="your-neon-pooled-connection-string"   # PowerShell: $env:DATABASE_URL="..."
+node scripts/migrate.mjs
+
+# Then run the app in postgres mode:
+npm run dev
+```
+
+If the migration prints `Schema is up to date.` and the app signs people in normally,
+the database side is proven good.
+
+---
+
+## Troubleshooting
+
+| Symptom | Likely cause | Fix |
+|---------|--------------|-----|
+| Deploy fails / container won't start | Migration error | Render → service → **Logs**; the migrate step prints the SQL error |
+| `password authentication failed` | Wrong DB string or using the **direct** Neon endpoint | Use the `-pooler` pooled string |
+| Connection refused under load | Using the direct Neon endpoint | Switch `DATABASE_URL` to the pooled string |
+| Site loads but nobody can sign up / data missing | `NEXT_PUBLIC_DB_MODE` not `postgres` | It's pinned in `render.yaml`; if unset the app silently runs in mock (localStorage) mode |
+| No **Map Admin** link | You haven't been granted admin | Run step 3, then refresh |
+| Phone can't get GPS | Not HTTPS | Use the deployed `https://` URL, not `localhost` |
+
+---
+
+## Note on the git credentials
+
+The last push initially failed because the local Git Credential Manager was logged in as
+a different GitHub account (`cycy4016-star`) than the repo owner (`scantyragna`). If you
+hit `Permission ... denied` when pushing, clear the stored credential and re-login as the
+repo-owning account:
+
+```bash
+echo -e "protocol=https\nhost=github.com" | git credential reject
+git push origin main   # a GitHub login window should appear
+```
