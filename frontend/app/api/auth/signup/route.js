@@ -59,7 +59,7 @@ export async function POST(request) {
      )
      SELECT u.id, u.email, p.full_name, p.phone, p.role
        FROM new_user u JOIN new_profile p ON p.id = u.id`,
-    [email, hashPassword(password), full_name, phone, role]
+    [email, await hashPassword(password), full_name, phone, role]
   )
 
   const user = inserted.rows[0]

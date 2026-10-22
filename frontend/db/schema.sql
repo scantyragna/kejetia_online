@@ -247,6 +247,34 @@ CREATE TABLE IF NOT EXISTS public.messages (
 
 CREATE INDEX IF NOT EXISTS messages_conversation_idx ON public.messages (conversation_id, created_at);
 
+-- One thread per (store, buyer). The chat UI's find-or-create can race, so
+-- uniqueness is enforced here: the API turns a duplicate insert into a
+-- refetch instead of silently forking the message history into two rows.
+-- Existing duplicates are merged first (messages move to the OLDEST thread),
+-- so this is safe to run on a database that already has them.
+DO $$
+DECLARE
+  dup RECORD;
+  keeper UUID;
+BEGIN
+  FOR dup IN
+    SELECT store_id, buyer_id, array_agg(id ORDER BY created_at) AS ids
+      FROM public.conversations
+     GROUP BY store_id, buyer_id
+    HAVING COUNT(*) > 1
+  LOOP
+    keeper := dup.ids[1];
+    UPDATE public.messages SET conversation_id = keeper
+     WHERE conversation_id = ANY(dup.ids[2:]);
+    DELETE FROM public.conversations WHERE id = ANY(dup.ids[2:]);
+    RAISE NOTICE 'Merged % duplicate conversation(s) for store % / buyer % into %',
+      array_length(dup.ids, 1) - 1, dup.store_id, dup.buyer_id, keeper;
+  END LOOP;
+END $$;
+
+CREATE UNIQUE INDEX IF NOT EXISTS conversations_store_buyer_key
+  ON public.conversations (store_id, buyer_id);
+
 -- ── USER LOCATIONS (live map dots, one row per user) ─────────
 CREATE TABLE IF NOT EXISTS public.user_locations (
   id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),

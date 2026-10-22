@@ -7,7 +7,7 @@ import { useAuth } from '@/context/auth-context'
 import Header from '@/components/Header'
 
 export default function ChatPage() {
-  const { id: storeId } = useParams()
+  const { id } = useParams()
   const { user, profile, loading: authLoading, signOut } = useAuth()
   const router = useRouter()
   const [store, setStore] = useState(null)
@@ -27,6 +27,21 @@ export default function ChatPage() {
     const init = async () => {
       const supabase = getSupabase()
       if (!supabase) return
+
+      // The URL id can be either a CONVERSATION id (from the messages list —
+      // the only way a seller can open a specific buyer's thread) or a STORE
+      // id (from "Chat with Seller" on a store page). Conversation reads are
+      // participant-only server-side, so a stranger's conversation id simply
+      // falls through to the store path.
+      let conv = null
+      const { data: byId } = await supabase
+        .from('conversations')
+        .select('*')
+        .eq('id', id)
+        .maybeSingle()
+      if (byId?.id) conv = byId
+
+      let storeId = conv?.store_id || id
       const { data: storeData } = await supabase
         .from('stores')
         .select('*')
@@ -34,37 +49,56 @@ export default function ChatPage() {
         .single()
       setStore(storeData)
 
-      if (!user) return
-
-      // Find or create conversation
-      if (!supabase) return
-      let { data: convData } = await supabase
-        .from('conversations')
-        .select('*')
-        .eq('store_id', storeId)
-        .eq('buyer_id', user.id)
-        .maybeSingle()
-
-      if (!convData) {
-        const supabase2 = getSupabase()
-        if (!supabase2) return
-        const { data: newConv } = await supabase2
-          .from('conversations')
-          .insert({ store_id: storeId, buyer_id: user.id })
-          .select()
-          .single()
-        convData = newConv
+      if (!user) {
+        setLoading(false)
+        return
       }
 
-      setConversation(convData)
+      if (!conv && storeData) {
+        // Store-link path (buyers): join my own thread with this store. A
+        // seller opening their own store's chat URL has no thread of their
+        // own — creating one would make them their own buyer (the old bug).
+        if (storeData.owner_id === user.id) {
+          setLoading(false)
+          return
+        }
+        let { data: existing } = await supabase
+          .from('conversations')
+          .select('*')
+          .eq('store_id', storeData.id)
+          .eq('buyer_id', user.id)
+          .maybeSingle()
 
-      if (convData) {
-        const supabase3 = getSupabase()
-        if (!supabase3) return
-        const { data: msgData } = await supabase3
+        if (!existing) {
+          const { data: created, error } = await supabase
+            .from('conversations')
+            .insert({ store_id: storeData.id, buyer_id: user.id })
+            .select()
+            .single()
+          if (error || !created) {
+            // Lost a create race — (store_id, buyer_id) is unique in the
+            // database — so refetch the row the winner created.
+            const { data: again } = await supabase
+              .from('conversations')
+              .select('*')
+              .eq('store_id', storeData.id)
+              .eq('buyer_id', user.id)
+              .maybeSingle()
+            existing = again
+          } else {
+            existing = created
+          }
+        }
+        conv = existing || null
+      }
+
+      setConversation(conv)
+
+      if (conv) {
+        const { data: msgData } = await supabase
           .from('messages')
           .select('*')
-          .eq('conversation_id', convData.id)
+          .eq('conversation_id', conv.id)
           .order('created_at', { ascending: true })
         setMessages(msgData || [])
       }
@@ -73,7 +107,7 @@ export default function ChatPage() {
     }
 
     init()
-  }, [user, authLoading, storeId])
+  }, [user, authLoading, id])
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -100,7 +134,7 @@ export default function ChatPage() {
 
   const handleSend = async (e) => {
     e.preventDefault()
-    if (!newMessage.trim() || sending) return
+    if (!newMessage.trim() || sending || !conversation) return
 
     setSending(true)
     const s = getSupabase()
@@ -113,10 +147,6 @@ export default function ChatPage() {
     if (!error) setNewMessage('')
     setSending(false)
   }
-
-  const otherParty = profile?.role === 'buyer'
-    ? store
-    : { name: profile?.full_name || 'Buyer' }
 
   if (authLoading || loading) {
     return <div style={styles.loading}><img src="/logo.svg" alt="Loading..." style={{ height: 32 }} /></div>
@@ -131,6 +161,9 @@ export default function ChatPage() {
     )
   }
 
+  // Seller opened their own store's chat link: there is no thread to show.
+  const ownStoreNoThread = !conversation && store.owner_id === user.id
+
   return (
     <div style={styles.page}>
       <Header user={user} profile={profile} onSignOut={signOut} />
@@ -139,13 +172,19 @@ export default function ChatPage() {
         <div style={styles.chatHeader}>
           <div>
             <strong style={styles.chatTitle}>{store.name}</strong>
-            <p style={styles.chatSub}>Chat with seller</p>
+            <p style={styles.chatSub}>{profile?.role === 'seller' ? 'Customer messages' : 'Chat with seller'}</p>
           </div>
           <a href={`/store/${store.id}`} style={styles.viewStoreLink}>View Store →</a>
         </div>
 
         <div style={styles.messagesWrap}>
-          {messages.length === 0 && (
+          {ownStoreNoThread && (
+            <p style={styles.emptyChat}>
+              This is your store. Buyers start conversations from your store page —
+              open them from your <a href="/chat">Messages</a> list.
+            </p>
+          )}
+          {!ownStoreNoThread && messages.length === 0 && (
             <p style={styles.emptyChat}>
               Start a conversation with {store.name}. Ask about product availability, prices, or directions.
             </p>
@@ -167,18 +206,20 @@ export default function ChatPage() {
           <div ref={messagesEndRef} />
         </div>
 
-        <form onSubmit={handleSend} style={styles.inputBar}>
-          <input
-            type="text"
-            placeholder="Type a message..."
-            value={newMessage}
-            onChange={(e) => setNewMessage(e.target.value)}
-            style={styles.chatInput}
-          />
-          <button type="submit" style={styles.sendBtn} disabled={sending || !newMessage.trim()}>
-            Send
-          </button>
-        </form>
+        {!ownStoreNoThread && (
+          <form onSubmit={handleSend} style={styles.inputBar}>
+            <input
+              type="text"
+              placeholder="Type a message..."
+              value={newMessage}
+              onChange={(e) => setNewMessage(e.target.value)}
+              style={styles.chatInput}
+            />
+            <button type="submit" style={styles.sendBtn} disabled={sending || !newMessage.trim()}>
+              Send
+            </button>
+          </form>
+        )}
       </div>
     </div>
   )

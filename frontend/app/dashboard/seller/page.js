@@ -20,7 +20,7 @@ import ProductImage from '@/components/ProductImage'
 import { MARKET_CATEGORIES, PRODUCT_ART } from '@/lib/categories'
 import { KEJETIA_CENTER } from '@/lib/map-geo'
 import { stockCount, stockLabel, discountPct } from '@/lib/products'
-import { Icon, iconNameFor } from '@/components/icons'
+import { Icon } from '@/components/icons'
 import { uploadProductImages, readMockImages, uploadAvatar, uploadStorePhoto } from '@/lib/media'
 
 const emptyProduct = (storeCategory) => ({

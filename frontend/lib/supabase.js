@@ -250,12 +250,31 @@ function toSafePublicUser(user) {
 // ───────────────────────────────────────────────────────────────────────────
 // Mock mode: fluent query builder over localStorage
 // ───────────────────────────────────────────────────────────────────────────
+// Embed support for specs like '*, stores(name, phone), buyer:profiles!buyer_id(full_name)'.
+// Columns aren't projected in mock mode (rows are already local, and a full
+// row is a superset of any column list) — only the joined row is resolved,
+// so dev-mode UIs that render `conv.stores?.name` work like they do in real mode.
+function parseMockEmbeds(spec) {
+  if (!spec || typeof spec !== 'string' || spec === '*') return []
+  const embeds = []
+  const re = /(?:([A-Za-z_][A-Za-z0-9_]*):)?([A-Za-z_][A-Za-z0-9_]*)!?([A-Za-z_][A-Za-z0-9_]*)?\(([^()]*)\)/g
+  let m
+  while ((m = re.exec(spec))) {
+    const table = m[2]
+    const alias = m[1] || table
+    const fkColumn = m[3] || (table.endsWith('s') ? `${table.slice(0, -1)}_id` : `${table}_id`)
+    embeds.push({ alias, table, fkColumn })
+  }
+  return embeds
+}
+
 function createMockQuery(tableName, initialRows = []) {
   let rows = Array.isArray(initialRows) ? [...initialRows] : []
   let filterFns = []
   let orderBy = null
   let limitCount = null
   let pendingOp = null // { type: 'update'|'delete', payload? }
+  let selectSpec = '*'
 
   const applyPendingOp = () => {
     if (!pendingOp) return
@@ -298,19 +317,29 @@ function createMockQuery(tableName, initialRows = []) {
       })
     }
     if (limitCount != null) result = result.slice(0, limitCount)
+
+    const embeds = parseMockEmbeds(selectSpec)
+    if (embeds.length) {
+      const cache = new Map()
+      result = result.map((row) => {
+        const out = { ...row }
+        for (const em of embeds) {
+          if (!cache.has(em.table)) cache.set(em.table, cloneTable(em.table))
+          const fk = row?.[em.fkColumn]
+          out[em.alias] = fk == null ? null : cache.get(em.table).find((r) => r?.id === fk) || null
+        }
+        return out
+      })
+    }
     return { data: result }
   }
 
   const query = {
-    select() { return query },
+    select(spec) { if (typeof spec === 'string') selectSpec = spec; return query },
     eq(field, value) { filterFns.push((row) => row[field] === value); return query },
     in(field, values) {
       const list = Array.isArray(values) ? values : [values]
       filterFns.push((row) => list.includes(row[field]))
-      return query
-    },
-    not(field, operator, value) {
-      if (operator === 'is') filterFns.push((row) => row[field] !== null && row[field] !== undefined)
       return query
     },
     order(field, options = {}) {
@@ -377,7 +406,6 @@ function createRemoteQuery(tableName) {
     },
     eq(field, value) { ops.push({ op: 'eq', args: [field, value] }); return query },
     in(field, values) { ops.push({ op: 'in', args: [field, values] }); return query },
-    not() { return query },
     order(field, options = {}) { ops.push({ op: 'order', args: [field, options] }); return query },
     limit(count) { ops.push({ op: 'limit', args: [count] }); return query },
     single() { ops.push({ op: 'single' }); return exec() },

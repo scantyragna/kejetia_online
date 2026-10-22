@@ -1,6 +1,18 @@
 # Kejetia Online - Technical Documentation
 ## Complete Project Architecture & Kumasi Integration Redesign
 
+> **⚠️ HISTORICAL DOCUMENT (read with care).** This file documents the
+> **Supabase-era** architecture and the Phase 1–4 visual redesign. Since it was
+> written the platform migrated off Supabase entirely (app-managed auth +
+> `/api/query` over Render/Neon Postgres) and the "market-green" styling was
+> replaced by the current navy/orange system. The tables, API endpoints
+> (`/api/stores`, `/api/search`, …) and `backend/` folder described below no
+> longer exist. For how the system actually works today, read
+> **[SYSTEM_OVERVIEW.md](./SYSTEM_OVERVIEW.md)** (plain-language) and the code
+> itself — `frontend/db/schema.sql` and `frontend/app/api/*`. The design-system
+> history and redesign narrative below remain accurate as a record of that
+> phase.
+
 **Project Date**: September 1, 2026  
 **Status**: Phase 1-4 Complete - Production Ready  
 **Version**: 1.0 - Kumasi Marketplace Redesign

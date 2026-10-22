@@ -89,7 +89,11 @@ export default function ChatListPage() {
             {conversations.map((conv) => (
               <a
                 key={conv.id}
-                href={`/chat/${conv.store_id}`}
+                // Conversation id, not store id: the thread page accepts either,
+                // but only the conversation id lets a SELLER open a specific
+                // buyer's thread (by store id they'd land in a store-level view
+                // that has no conversation of their own).
+                href={`/chat/${conv.id}`}
                 style={styles.convCard}
               >
                 <div style={styles.convIcon}>

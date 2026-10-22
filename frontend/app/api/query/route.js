@@ -628,6 +628,9 @@ export async function POST(request) {
       return fail('Price / stock must be numbers (blank stock = plenty).', 400)
     }
     if (/violates (check|not-null|foreign key|unique)/i.test(msg)) {
+      if (table === 'conversations' && /conversations_store_buyer_key|unique/i.test(msg)) {
+        return fail('Conversation already exists.', 409)
+      }
       return fail('That product data was rejected by the database. Check price, stock and store.', 400)
     }
     if (/query|column|syntax/i.test(msg)) {

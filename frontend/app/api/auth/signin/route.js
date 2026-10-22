@@ -34,7 +34,7 @@ export async function POST(request) {
     [email]
   )
   const match = rows[0]
-  if (!match || !verifyPassword(password, match.password_hash)) {
+  if (!match || !(await verifyPassword(password, match.password_hash))) {
     return NextResponse.json(
       { data: { user: null, session: null }, error: { message: 'Invalid email or password.' } },
       { status: 401 }

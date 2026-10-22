@@ -82,14 +82,22 @@ function SearchContent() {
   // Full marketplace fetch — shared by the initial load and the live
   // subscription below (so stores/products added by any user appear without
   // a manual refresh). Profiles ride along purely so each store's signboard
-  // can fall back to the owner's avatar when they have no store photo.
+  // can fall back to the owner's avatar when they have no store photo —
+  // and are skipped for signed-out visitors, who can't read profiles at all
+  // (the API returns an empty set; fetching them would be a wasted round trip).
+  // NOTE: filtering happens client-side, so the caps below are the current
+  // scalability ceiling. If the marketplace ever outgrows them, move the
+  // text filter into /api/query (or a dedicated search endpoint) instead of
+  // raising the caps.
+  const MAX_STORES = 500
+  const MAX_PRODUCTS = 2000
   const fetchAll = useCallback(async () => {
     const sb = getSupabase()
     if (!sb) return
     const [{ data: storeRows }, { data: productRows }, { data: profileRows }] = await Promise.all([
-      sb.from('stores').select('*').eq('is_active', true).order('created_at', { ascending: false }),
-      sb.from('products').select('*').eq('is_available', true),
-      sb.from('profiles').select('*'),
+      sb.from('stores').select('*').eq('is_active', true).order('created_at', { ascending: false }).limit(MAX_STORES),
+      sb.from('products').select('*').eq('is_available', true).limit(MAX_PRODUCTS),
+      user ? sb.from('profiles').select('id, avatar_url') : Promise.resolve({ data: [] }),
     ])
     const profileById = Object.fromEntries((profileRows || []).map((p) => [p.id, p]))
     const signboards = (storeRows || []).map((s) => ({
@@ -98,7 +106,7 @@ function SearchContent() {
     }))
     setAllStores(signboards)
     setAllProducts(productRows || [])
-  }, [])
+  }, [user])
 
   useEffect(() => {
     const q = searchParams.get('q') || ''
