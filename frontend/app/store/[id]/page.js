@@ -643,7 +643,7 @@ const styles = {
     fontSize: 36,
     fontWeight: 800,
     border: '4px solid #fff',
-    boxShadow: '0 6px 18px rgba(245,158,11,0.4)',
+    boxShadow: '0 6px 18px rgba(255,193,7,0.4)',
     flexShrink: 0,
   },
   infoText: { minWidth: 0 },

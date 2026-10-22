@@ -117,7 +117,7 @@ const styles = {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    background: 'radial-gradient(800px 420px at 15% -10%, rgba(245,158,11,0.16) 0%, transparent 60%), linear-gradient(135deg, #0b1220 0%, #0f172a 55%, #1e293b 100%)',
+    background: 'radial-gradient(800px 420px at 15% -10%, rgba(255,193,7,0.16) 0%, transparent 60%), linear-gradient(135deg, #0b1220 0%, #0f172a 55%, #1e293b 100%)',
     padding: 24,
   },
   card: {
@@ -160,7 +160,7 @@ const styles = {
     fontSize: 16,
     fontWeight: 800,
     cursor: 'pointer',
-    boxShadow: '0 14px 28px rgba(245, 158, 11, 0.35)',
+    boxShadow: '0 14px 28px rgba(255, 193, 7, 0.35)',
     transition: 'all 0.2s ease',
   },
   switch: { fontSize: 14, color: '#4b5563', textAlign: 'center', marginTop: 8 },

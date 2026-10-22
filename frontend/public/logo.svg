@@ -1,7 +1,11 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 216 56" role="img" aria-label="Kejetia Online">
   <rect width="216" height="56" rx="12" fill="#FAFAFA"/>
   <rect x="1" y="1" width="214" height="54" rx="11" fill="none" stroke="#E7E7EA" stroke-width="1"/>
-  <text x="16" y="24" font-family="Arial, Helvetica, system-ui, sans-serif" font-size="15.5" font-weight="800" fill="#CE1126" letter-spacing="3">KEJETIA</text>
-  <text x="16" y="44" font-family="Arial, Helvetica, system-ui, sans-serif" font-size="15.5" font-weight="800" fill="#0D7C3E" letter-spacing="3">ONLINE</text>
-  <line x1="16" y1="30" x2="200" y2="30" stroke="#F0D25B" stroke-width="1.4"/>
+  <circle cx="24" cy="26" r="15" fill="#FFC107"/>
+  <g transform="translate(15,16)" fill="none" stroke="#0F172A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M1 2.5h3.2l2.6 10.6a1.6 1.6 0 0 0 1.6 1.3h7.6a1.6 1.6 0 0 0 1.55-1.2l1.85-6.2H5.4"/>
+    <circle cx="9.2" cy="18.6" r="1.6" fill="#0F172A" stroke="none"/>
+    <circle cx="16.4" cy="18.6" r="1.6" fill="#0F172A" stroke="none"/>
+  </g>
+  <text x="46" y="33" font-family="Arial, Helvetica, system-ui, sans-serif" font-size="18.5" font-weight="800" fill="#0F172A">Kejetia<tspan fill="#D99E00">Online</tspan></text>
 </svg>

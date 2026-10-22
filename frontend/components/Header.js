@@ -1,11 +1,13 @@
 'use client'
 
 import { useState } from 'react'
+import { Icon } from '@/components/icons'
 
 export default function Header({ user, profile, onSignOut }) {
   const [open, setOpen] = useState(false)
 
   const storeUrl = '/search'
+  const dealsUrl = '/search?q=deals'
   const dashUrl = profile?.role === 'seller' ? '/dashboard/seller' : '/chat'
 
   return (
@@ -15,9 +17,15 @@ export default function Header({ user, profile, onSignOut }) {
           <img src="/logo.svg" alt="Kejetia Online" style={styles.logo} />
         </a>
 
+        <a href={storeUrl} style={styles.locPill} title="Serving Kejetia Market, Kumasi">
+          <Icon name="map-pin" size={15} />
+          <span>Kumasi</span>
+        </a>
+
         <nav style={styles.nav} className="ko-header-nav" aria-label="Primary">
           <a href="/" style={styles.navLink}>Home</a>
-          <a href={storeUrl} style={styles.navLink}>Stores</a>
+          <a href={storeUrl} style={styles.navLink}>Dealers</a>
+          <a href={dealsUrl} style={styles.navLink}>Deals</a>
           <a href="/directions" style={styles.navLink}>Directions</a>
           {user && (
             <a href="/studio" style={styles.navLink}>
@@ -53,8 +61,8 @@ export default function Header({ user, profile, onSignOut }) {
           ) : (
             <>
               <a href="/auth/login" style={styles.signIn} className="ko-header-signin">Sign in</a>
-              <a href="/auth/signup" className="ko-btn ko-btn-accent ko-header-cta" style={styles.cta}>
-                Get Started
+              <a href="/auth/signup?role=seller" className="ko-btn ko-btn-accent ko-header-cta" style={styles.cta}>
+                List Your Business
               </a>
             </>
           )}
@@ -68,7 +76,8 @@ export default function Header({ user, profile, onSignOut }) {
 
       <div style={styles.mobileMenu} className={`ko-header-menu${open ? ' open' : ''}`}>
           <a href="/" style={styles.mobileLink} onClick={() => setOpen(false)}>Home</a>
-          <a href={storeUrl} style={styles.mobileLink} onClick={() => setOpen(false)}>Stores</a>
+          <a href={storeUrl} style={styles.mobileLink} onClick={() => setOpen(false)}>Dealers</a>
+          <a href={dealsUrl} style={styles.mobileLink} onClick={() => setOpen(false)}>Deals</a>
           <a href="/directions" style={styles.mobileLink} onClick={() => setOpen(false)}>Directions</a>
           {user ? (
             <>
@@ -80,7 +89,7 @@ export default function Header({ user, profile, onSignOut }) {
                 {profile?.role === 'seller' ? 'Dashboard' : 'Messages'}
               </a>
               <button
-                style={styles.mobileCta}
+                style={styles.mobileSignOut}
                 onClick={() => {
                   setOpen(false)
                   if (onSignOut) onSignOut()
@@ -92,7 +101,7 @@ export default function Header({ user, profile, onSignOut }) {
           ) : (
             <>
               <a href="/auth/login" style={styles.mobileLink} onClick={() => setOpen(false)}>Sign in</a>
-              <a href="/auth/signup" style={styles.mobileCta} onClick={() => setOpen(false)}>Get Started</a>
+              <a href="/auth/signup?role=seller" style={styles.mobileCta} onClick={() => setOpen(false)}>List Your Business</a>
             </>
           )}
       </div>
@@ -102,12 +111,12 @@ export default function Header({ user, profile, onSignOut }) {
 
 const styles = {
   header: {
-    background: 'var(--navy)',
-    borderBottom: '1px solid rgba(255,255,255,0.07)',
+    background: '#fff',
+    borderBottom: '1px solid var(--border)',
     position: 'sticky',
     top: 0,
     zIndex: 1000,
-    boxShadow: '0 2px 12px rgba(15, 23, 42, 0.18)',
+    boxShadow: '0 2px 12px rgba(15, 23, 42, 0.06)',
   },
   inner: {
     display: 'flex',
@@ -127,18 +136,30 @@ const styles = {
     width: 'auto',
     display: 'block',
     borderRadius: 11,
-    boxShadow: '0 3px 10px rgba(0,0,0,0.22)',
+  },
+  locPill: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 5,
+    background: 'var(--accent-tint)',
+    color: 'var(--accent-700)',
+    fontSize: 13.5,
+    fontWeight: 700,
+    padding: '7px 13px',
+    borderRadius: 999,
+    textDecoration: 'none',
+    flexShrink: 0,
   },
   nav: {
     display: 'flex',
     alignItems: 'center',
-    gap: 28,
-    marginLeft: 40,
+    gap: 26,
+    marginLeft: 12,
   },
   navLink: {
     fontSize: 15,
     fontWeight: 600,
-    color: 'rgba(255,255,255,0.82)',
+    color: 'var(--muted)',
     textDecoration: 'none',
     transition: 'color 0.2s ease',
     cursor: 'pointer',
@@ -146,27 +167,28 @@ const styles = {
   actions: {
     display: 'flex',
     alignItems: 'center',
-    gap: 16,
+    gap: 14,
     marginLeft: 'auto',
   },
   signIn: {
     fontSize: 15,
     fontWeight: 600,
-    color: 'rgba(255,255,255,0.85)',
+    color: 'var(--ink)',
     textDecoration: 'none',
     cursor: 'pointer',
     transition: 'color 0.2s ease',
   },
   cta: {
-    padding: '10px 22px',
-    fontSize: 15,
+    padding: '10px 20px',
+    fontSize: 14.5,
     borderRadius: 999,
+    whiteSpace: 'nowrap',
   },
   avatarLink: {
     width: 38,
     height: 38,
     borderRadius: '50%',
-    background: 'var(--navy-3)',
+    background: 'var(--navy)',
     color: '#fff',
     display: 'flex',
     alignItems: 'center',
@@ -181,9 +203,9 @@ const styles = {
     width: 38,
     height: 38,
     borderRadius: '50%',
-    border: '1px solid rgba(255,255,255,0.2)',
+    border: '1px solid var(--border)',
     background: 'transparent',
-    color: 'rgba(255,255,255,0.75)',
+    color: 'var(--muted)',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
@@ -194,7 +216,7 @@ const styles = {
     display: 'none',
     background: 'transparent',
     border: 'none',
-    color: '#fff',
+    color: 'var(--ink)',
     cursor: 'pointer',
     padding: 8,
     borderRadius: 8,
@@ -203,16 +225,16 @@ const styles = {
     flexDirection: 'column',
     padding: '8px 24px 20px',
     gap: 4,
-    background: 'var(--navy)',
-    borderTop: '1px solid rgba(255,255,255,0.07)',
+    background: '#fff',
+    borderTop: '1px solid var(--border)',
   },
   mobileLink: {
     fontSize: 16,
     fontWeight: 600,
-    color: 'rgba(255,255,255,0.85)',
+    color: 'var(--ink)',
     padding: '12px 0',
     textDecoration: 'none',
-    borderBottom: '1px solid rgba(255,255,255,0.06)',
+    borderBottom: '1px solid var(--border)',
   },
   mobileCta: {
     display: 'block',
@@ -227,6 +249,21 @@ const styles = {
     fontWeight: 800,
     textDecoration: 'none',
     border: 'none',
+    fontFamily: 'inherit',
+    cursor: 'pointer',
+  },
+  mobileSignOut: {
+    display: 'block',
+    width: '100%',
+    textAlign: 'center',
+    marginTop: 14,
+    padding: '13px 0',
+    borderRadius: 999,
+    background: 'transparent',
+    color: 'var(--danger)',
+    border: '1.5px solid var(--border)',
+    fontSize: 15,
+    fontWeight: 700,
     fontFamily: 'inherit',
     cursor: 'pointer',
   },

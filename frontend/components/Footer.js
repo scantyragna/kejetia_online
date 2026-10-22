@@ -71,24 +71,32 @@ export default function Footer() {
         <div style={styles.col}>
           <h4 style={styles.heading}>Quick Links</h4>
           <a href="/" style={styles.link}>Home</a>
-          <a href="/search" style={styles.link}>Stores</a>
-          <a href="/search" style={styles.link}>Categories</a>
-          <a href="/search" style={styles.link}>Explore Map</a>
+          <a href="/search" style={styles.link}>Find Dealers</a>
+          <a href="/search?q=deals" style={styles.link}>Today&apos;s Deals</a>
+          <a href="/directions" style={styles.link}>Directions</a>
+        </div>
+
+        <div style={styles.col}>
+          <h4 style={styles.heading}>For Customers</h4>
+          <a href="/search" style={styles.link}>Browse Categories</a>
+          <a href="/search?view=map" style={styles.link}>Explore Map</a>
+          <a href="/chat" style={styles.link}>Messages</a>
+          <a href="/auth/login" style={styles.link}>Sign in</a>
         </div>
 
         <div style={styles.col}>
           <h4 style={styles.heading}>For Dealers</h4>
           <a href="/auth/signup?role=seller" style={styles.link}>List Your Business</a>
           <a href="/dashboard/seller" style={styles.link}>Dealer Dashboard</a>
-          <a href="/auth/signup?role=seller" style={styles.link}>Get Started</a>
+          <a href="/studio" style={styles.link}>Map Studio</a>
           <a href="/auth/login" style={styles.link}>Owner Login</a>
         </div>
 
         <div style={styles.col}>
           <h4 style={styles.heading}>Contact Us</h4>
-          <p style={styles.contact}><Icon name="phone" size={13} color="var(--ko-accent)" /> +233 20 000 0001</p>
-          <p style={styles.contact}><Icon name="mail" size={13} color="var(--ko-accent)" /> hello@kejetiaonline.com</p>
-          <p style={styles.contact}><Icon name="map-pin" size={13} color="var(--ko-accent)" /> Kejetia Market, Kumasi</p>
+          <p style={styles.contact}><Icon name="phone" size={13} color="var(--accent)" /> +233 20 000 0001</p>
+          <p style={styles.contact}><Icon name="mail" size={13} color="var(--accent)" /> hello@kejetiaonline.com</p>
+          <p style={styles.contact}><Icon name="map-pin" size={13} color="var(--accent)" /> Kejetia Market, Kumasi</p>
           <p style={styles.contact}>Ashanti Region, Ghana</p>
           <a
             className="ko-btn ko-btn-whatsapp"

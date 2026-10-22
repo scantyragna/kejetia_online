@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { Icon } from '@/components/icons'
 
-const POPULAR = ['Phones', 'Electronics', 'Fashion', 'Shoes & Bags', 'Grocery']
+const POPULAR = ['iPhone', 'Shoes', 'Laptops', 'Dresses', 'Perfumes']
 
 export default function Hero() {
   const [query, setQuery] = useState('')
@@ -34,7 +34,7 @@ export default function Hero() {
           </h1>
 
           <p className="ko-hero-sub">
-            Discover trusted shops, modern and exciting deals around Kumasi — search, explore the market map, and buy directly from real merchants.
+            Discover trusted shops, dealers and amazing deals around Kumasi — search, explore the market map, and buy directly from real merchants.
           </p>
 
           <form onSubmit={handleSearch} className="ko-search">
@@ -44,7 +44,7 @@ export default function Hero() {
             <input
               type="text"
               className="ko-search-input"
-              placeholder="Search product, shops, etc."
+              placeholder="Search shops, dealers, products..."
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               autoComplete="off"
@@ -72,11 +72,11 @@ export default function Hero() {
               <div className="ko-hero-mapcard-txt">
                 <strong style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                   <Icon name="map" size={15} />
-                  <span>Explore Kejetia</span>
+                  <span>Explore Nearby</span>
                 </strong>
-                <span>Interactive map of the market &amp; shops</span>
+                <span>Find dealers around you</span>
               </div>
-              <a className="ko-btn ko-btn-accent ko-mapbtn" href="/search">Visit Map</a>
+              <a className="ko-btn ko-btn-accent ko-mapbtn" href="/search?view=map">Explore Map</a>
             </div>
           </div>
         </div>

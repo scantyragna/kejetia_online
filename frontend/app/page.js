@@ -74,6 +74,8 @@ export default function HomePage() {
 
   const featured = stores.slice(0, 8)
   const storeById = Object.fromEntries(stores.map((s) => [s.id, s]))
+  // Real per-category dealer counts (stores.category holds the label).
+  const catCount = (label) => stores.filter((s) => s.category === label).length
   // “Today's Deals” only shows items sellers have actually marked down.
   const deals = products.filter((p) => discountPct(p) !== null).slice(0, 8)
 
@@ -95,14 +97,20 @@ export default function HomePage() {
             <a className="ko-link-all" href="/search">View all categories ›</a>
           </div>
           <div style={styles.catGrid}>
-            {CATEGORIES.map((cat) => (
-              <a key={cat.name} href={`/search?q=${encodeURIComponent(cat.query)}`} style={styles.catCard}>
-                <span style={styles.catIcon}>
-                  <Icon name={cat.icon} size={25} color="var(--accent-700)" />
-                </span>
-                <span style={styles.catName}>{cat.name}</span>
-              </a>
-            ))}
+            {CATEGORIES.map((cat) => {
+              const n = catCount(cat.name)
+              return (
+                <a key={cat.name} href={`/search?q=${encodeURIComponent(cat.query)}`} style={styles.catCard}>
+                  <span style={styles.catIcon}>
+                    <Icon name={cat.icon} size={25} color="var(--accent-700)" />
+                  </span>
+                  <span style={styles.catName}>{cat.name}</span>
+                  <span style={styles.catCount}>
+                    {n > 0 ? `${n} dealer${n === 1 ? '' : 's'}` : 'No dealers yet'}
+                  </span>
+                </a>
+              )
+            })}
           </div>
           </Reveal>
         </div>
@@ -116,9 +124,9 @@ export default function HomePage() {
             <div className="ko-section-head">
               <div>
                 <div className="ko-eyebrow">Trusted merchants</div>
-                <h2 className="ko-title">Featured Vendors</h2>
+                <h2 className="ko-title">Featured Dealers</h2>
               </div>
-              <a className="ko-link-all" href="/search">View all vendors ›</a>
+              <a className="ko-link-all" href="/search">View all dealers ›</a>
             </div>
             <div style={styles.vendorGrid}>
               {featured.map((store, i) => (
@@ -217,7 +225,7 @@ export default function HomePage() {
         <div className="ko-dealer">
           <div style={styles.dealerText} className="ko-dealer-text">
             <h2 style={styles.dealerTitle} className="ko-dealer-title">Are you a dealer?</h2>
-            <p style={styles.dealerSub}>Grow your business, reach more customers around you.</p>
+            <p style={styles.dealerSub}>List your business and reach thousands of customers every day.</p>
             <a
               className="ko-btn ko-btn-accent"
               href="/auth/signup?role=seller"
@@ -227,12 +235,12 @@ export default function HomePage() {
                 router.push('/auth/signup?role=seller')
               }}
             >
-              Get Your Business
+              List Your Business
             </a>
           </div>
           <div style={styles.dealerArt} className="ko-dealer-art" aria-hidden>
             <span style={styles.dealerArtMain}>
-              <Icon name="storefront" size={148} color="rgba(245,158,11,0.95)" />
+              <Icon name="storefront" size={148} color="rgba(255,193,7,0.95)" />
             </span>
             <span style={styles.dealerArtBag}>
               <Icon name="shopping-bag" size={56} color="rgba(255,255,255,0.55)" />
@@ -290,6 +298,12 @@ const styles = {
     fontWeight: 700,
     color: 'var(--ink)',
     textAlign: 'center',
+  },
+  catCount: {
+    fontSize: 11,
+    fontWeight: 600,
+    color: 'var(--muted)',
+    marginTop: -4,
   },
 
   /* Vendors */
@@ -472,7 +486,7 @@ const styles = {
   /* Dealer banner */
   dealerSection: {
     background: 'var(--navy)',
-    backgroundImage: 'radial-gradient(700px 300px at 100% 0%, rgba(245,158,11,0.14) 0%, transparent 60%)',
+    backgroundImage: 'radial-gradient(700px 300px at 100% 0%, rgba(255,193,7,0.14) 0%, transparent 60%)',
   },
   dealerText: { maxWidth: 520 },
   dealerTitle: {

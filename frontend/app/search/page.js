@@ -32,7 +32,9 @@ function SearchContent() {
   const [stores, setStores] = useState([])
   const [products, setProducts] = useState([])
   const [selectedStore, setSelectedStore] = useState(null)
-  const [view, setView] = useState('grid')
+  const [view, setView] = useState(
+    () => (searchParams.get('view') === 'map' ? 'map' : 'grid')
+  )
   const [loading, setLoading] = useState(false)
   const [catFilter, setCatFilter] = useState('')
   const [sort, setSort] = useState('featured')

@@ -302,7 +302,7 @@ const styles = {
     alignItems: 'center',
     gap: 6,
     border: '1px solid var(--accent)',
-    background: 'rgba(245, 158, 11, 0.12)',
+    background: 'rgba(255, 193, 7, 0.12)',
     color: '#b45309',
     fontWeight: 700,
     fontSize: 12.5,

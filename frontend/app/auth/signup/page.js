@@ -1,18 +1,36 @@
 'use client'
 
-import { useState } from 'react'
+import { Suspense, useEffect, useState } from 'react'
 import { getSupabase } from '@/lib/supabase'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { Icon } from '@/components/icons'
 
 export default function SignupPage() {
+  return (
+    <Suspense fallback={<div style={{ padding: 40, textAlign: 'center' }}>Loading…</div>}>
+      <SignupContent />
+    </Suspense>
+  )
+}
+
+function SignupContent() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const [step, setStep] = useState('role')
   const [role, setRole] = useState('')
   const [form, setForm] = useState({ email: '', password: '', full_name: '', phone: '' })
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+
+  // /auth/signup?role=seller (used by every "List Your Business" CTA) skips
+  // the role picker and goes straight to the account form.
+  useEffect(() => {
+    if (searchParams.get('role') === 'seller') {
+      setRole('seller')
+      setStep('form')
+    }
+  }, [searchParams])
 
   const chooseRole = (selectedRole) => {
     setRole(selectedRole)
@@ -197,7 +215,7 @@ const styles = {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    background: 'radial-gradient(900px 500px at 12% -10%, rgba(245,158,11,0.15) 0%, transparent 60%), linear-gradient(135deg, #0b1220 0%, #0f172a 55%, #1e293b 100%)',
+    background: 'radial-gradient(900px 500px at 12% -10%, rgba(255,193,7,0.15) 0%, transparent 60%), linear-gradient(135deg, #0b1220 0%, #0f172a 55%, #1e293b 100%)',
     padding: 24,
   },
   authShell: {
@@ -278,9 +296,9 @@ const styles = {
     boxSizing: 'border-box',
   },
   roleCardActive: {
-    background: 'linear-gradient(135deg, rgba(245,158,11,0.10) 0%, rgba(251,191,36,0.16) 100%)',
-    borderColor: 'rgba(245, 158, 11, 0.55)',
-    boxShadow: '0 10px 22px rgba(245, 158, 11, 0.18)',
+    background: 'linear-gradient(135deg, rgba(255,193,7,0.10) 0%, rgba(251,191,36,0.16) 100%)',
+    borderColor: 'rgba(255, 193, 7, 0.55)',
+    boxShadow: '0 10px 22px rgba(255, 193, 7, 0.18)',
   },
   roleIcon: {
     width: 46, height: 46, borderRadius: 14,
@@ -318,7 +336,7 @@ const styles = {
     fontWeight: 800,
     cursor: 'pointer',
     marginTop: 22,
-    boxShadow: '0 14px 28px rgba(245, 158, 11, 0.35)',
+    boxShadow: '0 14px 28px rgba(255, 193, 7, 0.35)',
     transition: 'all 0.2s ease',
   },
 }

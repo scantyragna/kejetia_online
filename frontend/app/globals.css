@@ -1,13 +1,13 @@
 :root {
-  /* KejetiaOnline Brand - Navy & Orange */
+  /* KejetiaOnline Brand - Navy & Golden Yellow (matches public/ui-reference.jpeg) */
   --navy: #0F172A;
   --navy-2: #1E293B;
   --navy-3: #334155;
   --ink: #0F172A;
-  --accent: #F59E0B;      /* amber/orange primary accent */
-  --accent-600: #D97706;
-  --accent-700: #B45309;
-  --accent-tint: rgba(245, 158, 11, 0.12);
+  --accent: #FFC107;      /* golden yellow — buttons, chips, highlights */
+  --accent-600: #D97706;  /* darker amber — text/hover on light backgrounds */
+  --accent-700: #B45309;  /* darkest — link text on white (WCAG AA) */
+  --accent-tint: rgba(255, 193, 7, 0.14);
   --surface: #FFFFFF;
   --bg: #F8FAFC;
   --border: #E2E8F0;
@@ -139,7 +139,7 @@ a {
 .ko-btn-accent:hover {
   background: var(--accent-600);
   transform: translateY(-1px);
-  box-shadow: 0 8px 20px rgba(245, 158, 11, 0.35);
+  box-shadow: 0 8px 20px rgba(255, 193, 7, 0.35);
 }
 
 .ko-btn-dark {
@@ -2417,7 +2417,7 @@ input, textarea {
 .ko-hero {
   position: relative;
   background:
-    radial-gradient(900px 480px at 88% -10%, rgba(245, 158, 11, 0.16) 0%, transparent 60%),
+    radial-gradient(900px 480px at 88% -10%, rgba(255, 193, 7, 0.16) 0%, transparent 60%),
     radial-gradient(720px 420px at -5% 115%, rgba(56, 189, 248, 0.10) 0%, transparent 55%),
     linear-gradient(115deg, #0b1220 0%, #0f172a 55%, #17203c 100%);
   overflow: hidden;
@@ -2450,8 +2450,8 @@ input, textarea {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  background: rgba(245, 158, 11, 0.12);
-  border: 1px solid rgba(245, 158, 11, 0.35);
+  background: rgba(255, 193, 7, 0.12);
+  border: 1px solid rgba(255, 193, 7, 0.35);
   color: #fcd34d;
   padding: 7px 16px;
   border-radius: 999px;
@@ -2536,7 +2536,7 @@ input, textarea {
 
 .ko-search-btn:hover {
   background: var(--accent-600);
-  box-shadow: 0 8px 22px rgba(245, 158, 11, 0.4);
+  box-shadow: 0 8px 22px rgba(255, 193, 7, 0.4);
   transform: translateY(-1px);
 }
 
@@ -2563,8 +2563,8 @@ input, textarea {
 }
 
 .ko-chip:hover {
-  background: rgba(245, 158, 11, 0.16);
-  border-color: rgba(245, 158, 11, 0.55);
+  background: rgba(255, 193, 7, 0.16);
+  border-color: rgba(255, 193, 7, 0.55);
   color: #fcd34d;
   transform: translateY(-2px);
 }
@@ -2770,10 +2770,65 @@ input, textarea {
   .ko-header-menu.open { display: flex !important; }
 }
 
+/* Mobile bottom tab bar (ui-reference) — hidden on desktop */
+.ko-tabbar {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .ko-tabbar {
+    display: flex;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: #fff;
+    border-top: 1px solid var(--border);
+    box-shadow: 0 -4px 16px rgba(15, 23, 42, 0.08);
+    z-index: 1000;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  body {
+    padding-bottom: calc(64px + env(safe-area-inset-bottom));
+  }
+}
+
+.ko-tab {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  padding: 9px 0 7px;
+  text-decoration: none;
+  color: var(--muted);
+  font-size: 10.5px;
+  font-weight: 700;
+}
+
+.ko-tab .ko-tab-ico {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 26px;
+  border-radius: 13px;
+  transition: background 0.15s ease;
+}
+
+.ko-tab.active {
+  color: var(--ink);
+}
+
+.ko-tab.active .ko-tab-ico {
+  background: var(--accent-tint);
+}
+
 /* Footer columns */
 .container.ko-footer-grid {
   display: grid;
-  grid-template-columns: 1.6fr 1fr 1fr 1.2fr;
+  grid-template-columns: 1.6fr 1fr 1fr 1fr 1.1fr;
   gap: 44px;
   padding: 64px 24px 48px;
 }
